@@ -1,4 +1,4 @@
-/* CZI Volume Studio — processing operation catalogue (UI definitions).
+/* SynaptoSnap — processing operation catalogue (UI definitions).
  * Each op: id (matches Proc OPS), name, desc, inputs [{label, kinds, optional, show}], params [...], short(p) for the output name.
  * Param: { k, label, type:'num'|'select'|'check'|'text', def (value or fn(ctx, layer)), options, step, min, max, show(p), hint }
  * ctx = { sx, sy, sz, W, H, D, meta }.

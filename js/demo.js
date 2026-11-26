@@ -110,7 +110,7 @@ function makeSCDemo(app, opts = {}) {
   app.status(`Synthetic pachytene nucleus: ${curves.length} bivalents, true SC lengths ${curves.map((c) => c.length.toFixed(1)).join(', ')} µm (with gaps). Try Analyze › Chromosome tracing.`);
 }
 
-/* CZI Volume Studio — synthetic demo stack: a Turing-type spot→stripe pattern on a curved
+/* SynaptoSnap — synthetic demo stack: a Turing-type spot→stripe pattern on a curved
  * epidermis, plus a cell-wall channel, with depth attenuation and camera noise (12-bit). */
 function makeDemoVolume(app) {
   const W = 256, H = 256, D = 40, sx = 0.25, sz = 0.6, P = W * H;

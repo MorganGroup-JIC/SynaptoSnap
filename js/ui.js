@@ -1,4 +1,4 @@
-/* CZI Volume Studio — user interface panels. */
+/* SynaptoSnap — user interface panels. */
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
   if (attrs) for (const k in attrs) {
@@ -971,7 +971,7 @@ class UI {
   toggleHelp() {
     if (!$('#modal').classList.contains('hidden')) return this.closeModal();
     const k = (a, b) => h('tr', null, h('td', null, h('kbd', null, a)), h('td', null, b));
-    this.modal('CZI Volume Studio — quick guide', h('div', { class: 'help' },
+    this.modal('SynaptoSnap — quick guide', h('div', { class: 'help' },
       h('p', null, 'Open a .czi (drag & drop works), adjust each channel in the left panel, choose a rendering style in the Render tab, process in the Process tab, quantify in Analyze and save a new .czi from Export. Every processing step creates a new layer, so the original data is never changed.'),
       h('table', null,
         k('Ctrl+O', 'Open CZI'), k('1 / 2 / 3', '3D / Slice / Ortho views'), k('Drag', 'Rotate (3D) · pan (slices)'), k('Shift-drag, right-drag', 'Pan (3D)'),

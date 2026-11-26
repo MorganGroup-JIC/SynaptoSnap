@@ -2,9 +2,18 @@
 
 Tool to visualize and assist in annotation of synaptonemal complexes of Arabidopsis male meiocytes during pachytene in 3D-SIM .czi files.
 
-The app (titled **CZI Volume Studio** in its window and launcher) is a 3D viewer, processing and analysis tool for Zeiss `.czi` microscopy stacks that runs entirely in your browser (Edge or Chrome). It needs no install and no internet connection, and files never leave your computer.
+SynaptoSnap is a 3D viewer, processing and analysis tool for Zeiss `.czi` microscopy stacks that runs entirely in your browser (Edge or Chrome). It needs no install and no internet connection, and files never leave your computer.
 
-**Start it:** double-click `CZI Volume Studio.bat` (opens in its own Edge window), or open `index.html` in Edge/Chrome. Then **Open CZI…**, drag a file onto the window, or click **Demo volume** for synthetic test stacks (a dense SIM-like pachytene nucleus, a sparse one, or a Turing pattern).
+**Start it:** double-click `SynaptoSnap.bat` (opens in its own Edge window), or open `index.html` in Edge/Chrome. Then **Open CZI…**, drag a file onto the window, or click **Demo volume** for synthetic test stacks (a dense SIM-like pachytene nucleus, a sparse one, or a Turing pattern).
+
+## Online version and installing it
+
+The same files can be served by GitHub Pages: in the repository's **Settings → Pages**, choose *Deploy from a branch*, `main`, `/ (root)`. The app then appears at `https://morgangroup-jic.github.io/<repository name>/`. It still runs entirely in the browser: `.czi` files are opened from your disk and never uploaded. The page itself (the code) is public, though, unless the organisation's plan restricts Pages access.
+
+- **Install it as an app:** open the site in Edge and choose **⋯ → Apps → Install SynaptoSnap** (or the install icon in the address bar). It then gets its own window, a Start-menu entry, and a sharp taskbar icon made from the exact-size images in `icons/`.
+- **Offline:** once opened online, it also starts without a connection (`sw.js` keeps a copy of the app's files).
+- **Updates:** online, every start loads the current version from the site and refreshes the offline copy. A release reaches the site a minute or so after it is pushed to `main`.
+- Opening `index.html` as a file, or with `SynaptoSnap.bat`, works as before. Browsers don't allow installing or offline copies for files, so the taskbar then shows Edge's enlarged tab icon.
 
 ## What it reads
 
@@ -391,15 +400,21 @@ Masks are written as 0/max and label IDs are kept as integers (use 16-bit for up
 - **App version:** date-based, `YYYY.MM.DD`, with `.1`, `.2` … for further releases on the same day (first: 2026.11.26). It is shown in the header; hover over it for the tracing engine version too. It is set in `js/version.js`, and each release is tagged in git as `v` + the version, e.g. `v2026.11.26`.
 - **Tracing engine version:** separate, date + letter (e.g. `2026-11-24f`), in `js/tracing.js`. It changes only when tracing results would change. Every trace stores the version it was made with, and the trace panel warns when a trace comes from an older engine.
 - **Between releases:** git commits record every change.
+- **Name:** the app was called CZI Volume Studio until 2026-11-26, when it was renamed SynaptoSnap. Panel sizes saved under the old name are carried over.
 
 ## Files
 
 ```
 index.html                 layout & styles
-icon.svg, icon.png, icon.ico  app icon (window, taskbar, header)
+icon.svg, icon.ico         app icon: vector drawing, and a Windows .ico with every size
+icons/                     app icon as PNGs, each drawn for its size (tab, header, taskbar, installed app)
+tools/make-icons.html      draws all the icon files from one design (open it in a browser and save the files)
+manifest.webmanifest       makes the app installable when served over https (GitHub Pages)
+sw.js                      offline copy of the app for the online / installed version
+.nojekyll                  tells GitHub Pages to serve the files unchanged
 js/layout.js               resizable / hideable side panels, Ortho pane splitters
 js/version.js              app version (date-based)
-CZI Volume Studio.bat      launcher (Edge app window)
+SynaptoSnap.bat            launcher (Edge app window)
 js/czi.js                  CZI reader / writer and metadata
 js/processing.js           filters, segmentation, measurements, FFT (runs in a Web Worker)
 js/tracing.js              3D skeletonisation, skeleton graph, chromosome tracing solver

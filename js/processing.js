@@ -1,4 +1,4 @@
-/* CZI Volume Studio — image processing library.
+/* SynaptoSnap — image processing library.
  *
  * Pure functions on 3D volumes stored as flat typed arrays, index = (z*H + y)*W + x.
  * Runs inside a Web Worker (heavy operations) and on the main thread (histograms,

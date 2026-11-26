@@ -1,4 +1,4 @@
-/* CZI Volume Studio — import and export of SNT (Fiji "Simple Neurite Tracer") .traces files.
+/* SynaptoSnap — import and export of SNT (Fiji "Simple Neurite Tracer") .traces files.
  *
  * A .traces file is XML, normally gzip-compressed: <tracings> holds <samplespacing> (voxel size and
  * unit), <imagesize> and one <path> per traced path. Each path is a list of <point>s with voxel

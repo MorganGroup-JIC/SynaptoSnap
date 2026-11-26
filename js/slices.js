@@ -1,4 +1,4 @@
-/* CZI Volume Studio — 2D slice views (XY / XZ / YZ) composited on the CPU at full resolution. */
+/* SynaptoSnap — 2D slice views (XY / XZ / YZ) composited on the CPU at full resolution. */
 
 /* Per-layer lookup tables raw value -> premultiplied RGB (0..255), cached by display version. */
 function layerLUT(L) {

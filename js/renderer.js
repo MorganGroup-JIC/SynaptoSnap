@@ -1,4 +1,4 @@
-/* CZI Volume Studio — WebGL2 ray-marching volume renderer with a 2D overlay. */
+/* SynaptoSnap — WebGL2 ray-marching volume renderer with a 2D overlay. */
 const M4 = {
   mul(a, b) {
     const o = new Float32Array(16);

@@ -1,4 +1,4 @@
-/* CZI Volume Studio — chromosome tracing: results panel, overlays and manual correction. */
+/* SynaptoSnap — chromosome tracing: results panel, overlays and manual correction. */
 (function () {
   const css = (rgb) => `rgb(${Math.round(rgb[0] * 255)},${Math.round(rgb[1] * 255)},${Math.round(rgb[2] * 255)})`;
   const chromColor = (k) => (k ? css(Colormaps.labelColor(k)) : '#9aa0a6');

@@ -1,4 +1,4 @@
-/* CZI Volume Studio — CZI (Carl Zeiss Image, "ZISRAW") reader and writer.
+/* SynaptoSnap — CZI (Carl Zeiss Image, "ZISRAW") reader and writer.
  *
  * Written as a factory so the same code runs on the main thread and inside the
  * processing Web Worker (where pixel decoding happens).
@@ -665,9 +665,9 @@ function CZIFactory(fzstd) {
     return '<?xml version="1.0" encoding="utf-8"?>' +
       '<ImageDocument><Metadata>' +
       '<Information>' +
-      `<Application><Name>CZI Volume Studio</Name><Version>1.0</Version></Application>` +
+      `<Application><Name>SynaptoSnap</Name><Version>1.0</Version></Application>` +
       `<Document><Name>${xmlEsc(o.name)}</Name><Title>${xmlEsc(o.name)}</Title><CreationDate>${now}</CreationDate>` +
-      `<Comment>Exported from CZI Volume Studio</Comment><Description>${xmlEsc(o.description || '')}</Description></Document>` +
+      `<Comment>Exported from SynaptoSnap</Comment><Description>${xmlEsc(o.description || '')}</Description></Document>` +
       `<Image><PixelType>${o.pixelType}</PixelType><ComponentBitCount>${o.bitCount}</ComponentBitCount>` +
       `<SizeX>${o.width}</SizeX><SizeY>${o.height}</SizeY><SizeZ>${o.depth}</SizeZ><SizeC>${o.channels.length}</SizeC><SizeT>1</SizeT>` +
       `<Dimensions><Channels>${chDims}</Channels></Dimensions></Image>` +

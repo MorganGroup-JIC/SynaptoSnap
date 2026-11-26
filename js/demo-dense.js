@@ -1,4 +1,4 @@
-/* CZI Volume Studio — dense pachytene nucleus modelled on a real ZYP1 3D-SIM stack
+/* SynaptoSnap — dense pachytene nucleus modelled on a real ZYP1 3D-SIM stack
  * (~120 µm of SC in a 6.5 µm nucleus).
  *
  * N long, wavy synaptonemal complexes are packed into a flattened, dome-shaped nucleus. They lie in

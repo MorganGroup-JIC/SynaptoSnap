@@ -1,4 +1,4 @@
-/* CZI Volume Studio — CZI export, snapshots, turntable movies, line profiles. */
+/* SynaptoSnap — CZI export, snapshots, turntable movies, line profiles. */
 (function () {
   const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 
@@ -116,7 +116,7 @@
       // Low/High are written relative to the full pixel-type range, with BitCountRange set to match.
       const lowHigh = (cv) => [clamp01(cv.low), clamp01(cv.high)];
       const desc = [
-        'Exported by CZI Volume Studio on ' + new Date().toISOString(),
+        'Exported by SynaptoSnap on ' + new Date().toISOString(),
         'Source: ' + (this.vol ? this.vol.fileName || this.vol.name : 'unknown'),
         'Region: ' + (r.full ? 'whole volume' : `x ${r.x0}-${r.x0 + r.w - 1}, y ${r.y0}-${r.y0 + r.h - 1}, z ${r.z0}-${r.z0 + r.d - 1}`),
         'Values: ' + (o.values === 'display' ? 'display contrast/gamma applied' : 'data values') + ', pixel type ' + pt,

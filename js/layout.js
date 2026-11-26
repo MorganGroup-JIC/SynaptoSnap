@@ -1,4 +1,4 @@
-/* CZI Volume Studio: window layout.
+/* SynaptoSnap: window layout.
    - Side panels: drag the thin handle between a panel and the views to resize it (180-600 px, the views keep at
      least 300 px); double-click the handle for the default width; the small tab on the handle hides / shows the panel.
    - Ortho view: drag the line between the panes (or the dot where the lines cross) to change the pane sizes;
@@ -11,7 +11,8 @@
    their zoom and position). */
 (function () {
   'use strict';
-  const KEY = 'cziVolumeStudio.layout';
+  const KEY = 'synaptoSnap.layout';
+  const OLD_KEY = 'cziVolumeStudio.layout';   // saved before the app was renamed (2026.11.26); read once, then KEY takes over
   const MIN_W = 180, MAX_W = 600, MIN_MAIN = 300, SNAP_CLOSE = 90, MIN_PANE = 80;
   const SIDES = ['left', 'right'];
   const root = document.documentElement;
@@ -20,7 +21,7 @@
   const state = { left: { w: null, collapsed: false }, right: { w: null, collapsed: false }, orthoC: null, orthoR: null };
   (function load() {
     let s = null;
-    try { s = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (_) { s = null; }
+    try { s = JSON.parse(localStorage.getItem(KEY) || localStorage.getItem(OLD_KEY) || 'null'); } catch (_) { s = null; }
     if (!s || typeof s !== 'object') return;
     for (const side of SIDES) {
       const v = s[side];

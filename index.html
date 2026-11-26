@@ -2,10 +2,24 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>CZI Volume Studio</title>
+<title>SynaptoSnap</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" type="image/svg+xml" sizes="any" href="icon.svg">
-<link rel="icon" type="image/png" sizes="256x256" href="icon.png">
+<meta name="theme-color" content="#101216">
+<!-- Icons: one PNG per size, each drawn for that size (tools/make-icons.html), so tabs and the taskbar stay sharp -->
+<link rel="icon" type="image/png" sizes="16x16" href="icons/icon-16.png">
+<link rel="icon" type="image/png" sizes="24x24" href="icons/icon-24.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="icons/icon-48.png">
+<link rel="icon" type="image/png" sizes="64x64" href="icons/icon-64.png">
+<link rel="icon" type="image/png" sizes="256x256" href="icons/icon-256.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<script>
+  // Served over http(s) (e.g. GitHub Pages) the app can be installed and works offline: manifest here, service
+  // worker at the end of the page. Opened as a file (index.html / SynaptoSnap.bat) browsers allow neither.
+  if (/^https?:$/.test(location.protocol)) {
+    const m = document.createElement('link'); m.rel = 'manifest'; m.href = 'manifest.webmanifest'; document.head.appendChild(m);
+  }
+</script>
 <style>
   :root {
     --bg: #101216; --panel: #181b21; --well: #13161b; --line: #2a2f38; --text: #e6e8ec;
@@ -25,7 +39,7 @@
   header#top { grid-area: top; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
   .brand { font-weight: 600; font-size: 15px; letter-spacing: .02em; margin-right: 6px; white-space: nowrap; }
   .brand b { color: var(--accent); font-weight: 600; }
-  .brand-icon { width: 22px; height: 22px; vertical-align: -6px; margin-right: 7px; }
+  .brand-icon { width: 24px; height: 24px; vertical-align: -7px; margin-right: 7px; }
   .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
   .spacer { flex: 1; }
   #fileLabel { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 32vw; }
@@ -241,7 +255,7 @@
 </head>
 <body data-view="3d">
 <header id="top">
-  <div class="brand"><img class="brand-icon" src="icon.svg" alt="" onerror="this.onerror=null;this.src='icon.png'">CZI <b>Volume</b> Studio <span id="appVer" style="font-size:10px;font-weight:400;opacity:.55;margin-left:4px"></span></div>
+  <div class="brand"><img class="brand-icon" src="icons/icon-24.png" srcset="icons/icon-24.png 1x, icons/icon-30.png 1.25x, icons/icon-36.png 1.5x, icons/icon-48.png 2x" alt="">Synapto<b>Snap</b> <span id="appVer" style="font-size:10px;font-weight:400;opacity:.55;margin-left:4px"></span></div>
   <button id="btnOpen" class="primary" title="Ctrl+O">Open CZI…</button>
   <input type="file" id="fileInput" accept=".czi,.traces" hidden>
   <button id="btnDemo" title="Generate a synthetic multi-channel stack to try the tools">Demo volume</button>
@@ -330,7 +344,9 @@
 <script>
   window.app = new App();
   document.getElementById('appVer').textContent = 'v' + APP_VERSION;
-  document.getElementById('appVer').title = 'CZI Volume Studio ' + APP_VERSION + ' · tracing engine ' + app.tracer.VERSION;
+  document.getElementById('appVer').title = 'SynaptoSnap ' + APP_VERSION + ' · tracing engine ' + app.tracer.VERSION;
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol))
+    navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Offline use unavailable:', e.message));
 </script>
 </body>
 </html>

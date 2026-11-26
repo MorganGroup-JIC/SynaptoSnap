@@ -1,4 +1,4 @@
-/* CZI Volume Studio — click-to-click path search through the image (as in Fiji SNT), for tracing by hand. */
+/* SynaptoSnap — click-to-click path search through the image (as in Fiji SNT), for tracing by hand. */
 (function () {
   /**
    * The intensity image sharpened along Z (Richardson–Lucy with the measured axial blur, as the automatic

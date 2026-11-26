@@ -1,4 +1,4 @@
-/* CZI Volume Studio — 3D skeletonisation and chromosome (synaptonemal-complex) tracing.
+/* SynaptoSnap — 3D skeletonisation and chromosome (synaptonemal-complex) tracing.
  *
  * Pipeline: mask -> topology-preserving thinning -> skeleton graph (end / junction nodes, edges)
  * -> cleanup (spurs, crossings split into two Y's, small loops) -> pair edge ends at every junction

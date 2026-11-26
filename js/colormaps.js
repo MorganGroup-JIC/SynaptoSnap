@@ -1,4 +1,4 @@
-/* CZI Volume Studio — colour maps (256-entry RGB lookup tables) and label colours. */
+/* SynaptoSnap — colour maps (256-entry RGB lookup tables) and label colours. */
 const Colormaps = (() => {
   'use strict';
   const SOLID = {

@@ -1,4 +1,4 @@
-/* CZI Volume Studio — application core: state, worker, loading, layers, views, rendering loop. */
+/* SynaptoSnap — application core: state, worker, loading, layers, views, rendering loop. */
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
 
@@ -208,7 +208,7 @@ class App {
     this.selectedId = this.layers.length ? this.layers[0].id : null;
     document.body.classList.add('has-data');
     $('#fileLabel').textContent = v.name;
-    document.title = v.name + ' — CZI Volume Studio';
+    document.title = v.name + ' — SynaptoSnap';
     Object.values(this.sliceViews).forEach((s) => { s.zoom = 0; s.offKey = ''; });
     this.layoutViews();
     this.layersChanged();

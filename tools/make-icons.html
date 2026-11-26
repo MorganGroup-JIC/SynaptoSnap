@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SynaptoSnap icons</title>
+<style>
+  body { font: 13px system-ui, sans-serif; margin: 16px; background: #eceef1; color: #222; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  p { margin: 4px 0 10px; max-width: 70em; }
+  .row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin: 8px 0; padding: 12px; border-radius: 8px; }
+  .dark { background: #202020; color: #ccc; } .light { background: #f9f9f9; }
+  figure { margin: 0; text-align: center; } figcaption { font-size: 11px; opacity: .65; margin-top: 3px; }
+  canvas.zoom { image-rendering: pixelated; }
+  #links a { display: inline-block; margin: 2px 10px 2px 0; }
+  #status { font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>SynaptoSnap icons</h1>
+<p>Draws every icon file the app uses from one design. The design shows a synaptonemal complex: two homologous axes (teal and magenta) zipped together by transverse filaments, inside camera viewfinder corners.
+From 56 px up it is the vector drawing below (also saved as <code>icon.svg</code>). From 16 to 48 px it is a pixel-snapped straight version, so that taskbar and tab sizes stay sharp.
+Click a link to save a file, and put it at the path shown (relative to the app folder).</p>
+<div id="status"></div>
+<div id="sheet"></div>
+<div id="links"></div>
+<script>
+'use strict';
+const COL = { top: '#252b35', bottom: '#101216', frame: '#dbe5ee', a: '#5ec8a8', b: '#e0609f', rung: '#e9f3f7' };
+const STD = [16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 96, 128, 192, 256, 512];  // icons/icon-N.png
+const ICO = [16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 96, 128, 256];           // icon.ico
+const MASK = [192, 512];                                                          // icons/icon-maskable-N.png
+const SMALL_MAX = 56;   // below this, the pixel-snapped version
+
+// ---- large design, 256 grid. The middle line and both axes are pairs of circular arcs (radius 110 ± 15),
+//      so the two axes stay exactly parallel; the dashes of a wide stroke along the middle line are the filaments.
+const MID = 'M108 196 A110 110 0 0 1 128 128 A110 110 0 0 0 148 60';
+const AX_A = 'M93 196.6 A125 125 0 0 1 115.7 119.4 A95 95 0 0 0 133 60.6';
+const AX_B = 'M123 195.4 A95 95 0 0 1 140.3 136.7 A125 125 0 0 0 163 59.4';
+
+function svgIcon(maskable, size = 256) {
+  const tile = maskable
+    ? '<rect width="256" height="256" fill="url(#bg)"/>'
+    : '<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#bg)"/>\n' +
+      '  <rect x="9" y="9" width="238" height="238" rx="53" fill="none" stroke="#fff" stroke-opacity=".09" stroke-width="2"/>';
+  // maskable: full-bleed tile, artwork inside the central 80 % safe zone
+  const art = maskable ? ' transform="translate(128 128) scale(.8) translate(-128 -128)"' : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="${size}" height="${size}">
+  <title>SynaptoSnap</title>
+  <!-- Made by tools/make-icons.html, which also draws the pixel-snapped small sizes (16-48 px). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${COL.top}"/>
+      <stop offset="1" stop-color="${COL.bottom}"/>
+    </linearGradient>
+  </defs>
+  ${tile}
+  <g${art}>
+    <path d="${MID}" fill="none" stroke="${COL.a}" stroke-opacity=".13" stroke-width="58" stroke-linecap="round"/>
+    <g fill="none" stroke="${COL.frame}" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M44 78 V44 H78"/>
+      <path d="M178 44 H212 V78"/>
+      <path d="M212 178 V212 H178"/>
+      <path d="M78 212 H44 V178"/>
+    </g>
+    <path d="${MID}" fill="none" stroke="${COL.rung}" stroke-width="22" stroke-dasharray="6 12" stroke-dashoffset="11.8"/>
+    <path d="${AX_A}" fill="none" stroke="${COL.a}" stroke-width="10" stroke-linecap="round"/>
+    <path d="${AX_B}" fill="none" stroke="${COL.b}" stroke-width="10" stroke-linecap="round"/>
+  </g>
+</svg>
+`;
+}
+
+// ---- small design: the same elements as whole-pixel rectangles (straight ladder, viewfinder corners)
+function drawSmall(ctx, N) {
+  const R = Math.round;
+  const g = ctx.createLinearGradient(0, 0, 0, N);
+  g.addColorStop(0, COL.top); g.addColorStop(1, COL.bottom);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(0, 0, N, N, Math.max(2, R(N * 0.2))); ctx.fill();
+  // viewfinder corners: thickness t, inset i, arm length a
+  const t = Math.max(1, R(N / 16 - 0.01)), i = Math.max(1, R(N * 0.125)), a = Math.max(3, R(N * 0.2));
+  const j = N - i - t, e = N - i - a;
+  ctx.fillStyle = COL.frame;
+  for (const [x, y, w, h] of [[i, i, a, t], [i, i, t, a], [e, i, a, t], [j, i, t, a],
+                              [i, j, a, t], [i, e, t, a], [e, j, a, t], [j, e, t, a]]) ctx.fillRect(x, y, w, h);
+  // axes: width s, gap between them (even, so the ladder is centred on whole pixels)
+  const s = Math.max(2, R(N * 0.09)), gap = 2 * Math.max(1, R(N / 16)), x0 = (N - 2 * s - gap) / 2;
+  const y0 = R(N * 0.19), y1 = N - y0, span = y1 - y0;
+  ctx.fillStyle = COL.a; ctx.fillRect(x0, y0, s, span);
+  ctx.fillStyle = COL.b; ctx.fillRect(x0 + s + gap, y0, s, span);
+  // transverse filaments: thickness rt, pitch p, centred along the axes
+  const rt = Math.max(1, R(N / 20 - 0.01)), p = Math.max(rt + 1, R(N * 0.11));
+  const k = Math.floor((span - rt) / p), first = y0 + Math.floor((span - ((k - 1) * p + rt)) / 2);
+  ctx.fillStyle = COL.rung;
+  for (let q = 0; q < k; q++) ctx.fillRect(x0 + s, first + q * p, gap, rt);
+}
+
+async function svgImage(maskable, N) {
+  const url = URL.createObjectURL(new Blob([svgIcon(maskable, N)], { type: 'image/svg+xml' }));
+  const img = new Image(); img.src = url; await img.decode(); URL.revokeObjectURL(url); return img;
+}
+async function render(N, maskable) {
+  const c = document.createElement('canvas'); c.width = c.height = N;
+  const ctx = c.getContext('2d');
+  if (!maskable && N < SMALL_MAX) drawSmall(ctx, N);
+  else ctx.drawImage(await svgImage(maskable, N), 0, 0, N, N);
+  return c;
+}
+const pngBlob = (c) => new Promise((r) => c.toBlob(r, 'image/png'));
+
+// .ico with a PNG image per size (Windows Vista and later)
+async function icoBlob(canvases) {
+  const pngs = await Promise.all(canvases.map(async (c) => new Uint8Array(await (await pngBlob(c)).arrayBuffer())));
+  const head = 6 + 16 * pngs.length, buf = new Uint8Array(head + pngs.reduce((s, p) => s + p.length, 0));
+  const dv = new DataView(buf.buffer);
+  dv.setUint16(2, 1, true); dv.setUint16(4, pngs.length, true);
+  let off = head;
+  pngs.forEach((p, k) => {
+    const N = canvases[k].width, at = 6 + 16 * k;
+    dv.setUint8(at, N >= 256 ? 0 : N); dv.setUint8(at + 1, N >= 256 ? 0 : N);
+    dv.setUint16(at + 4, 1, true); dv.setUint16(at + 6, 32, true);
+    dv.setUint32(at + 8, p.length, true); dv.setUint32(at + 12, off, true);
+    buf.set(p, off); off += p.length;
+  });
+  return new Blob([buf], { type: 'image/x-icon' });
+}
+
+function show(title, cls, items) {
+  const row = document.createElement('div'); row.className = 'row ' + cls;
+  const dpr = window.devicePixelRatio || 1;
+  for (const [label, c, zoom] of items) {
+    const f = document.createElement('figure'), v = document.createElement('canvas');
+    v.width = c.width; v.height = c.height;
+    v.getContext('2d').drawImage(c, 0, 0);
+    const css = zoom ? c.width * zoom : c.width / dpr;   // 1:1 device pixels unless zoomed
+    v.style.width = v.style.height = css + 'px';
+    if (zoom) v.className = 'zoom';
+    f.append(v); const cap = document.createElement('figcaption'); cap.textContent = label; f.append(cap); row.append(f);
+  }
+  const h = document.createElement('div'); h.textContent = title; h.style.cssText = 'width:100%;font-size:11px;opacity:.6';
+  row.prepend(h); document.getElementById('sheet').append(row);
+}
+
+(async function main() {
+  const files = [];   // [path, blob]
+  const std = {};
+  for (const N of STD) { std[N] = await render(N, false); files.push([`icons/icon-${N}.png`, await pngBlob(std[N])]); }
+  for (const N of MASK) files.push([`icons/icon-maskable-${N}.png`, await pngBlob(await render(N, true))]);
+  files.push(['icons/apple-touch-icon.png', await pngBlob(await render(180, true))]);
+  files.push(['icon.ico', await icoBlob(ICO.map((N) => std[N]))]);
+  files.push(['icon.svg', new Blob([svgIcon(false)], { type: 'image/svg+xml' })]);
+
+  const small = STD.filter((N) => N <= 64);
+  show('actual size, dark', 'dark', small.map((N) => [N + '', std[N]]));
+  show('actual size, light', 'light', small.map((N) => [N + '', std[N]]));
+  show('zoomed ×6 (each square is one pixel)', 'dark', [16, 24, 32, 48].map((N) => [N + ' px', std[N], 6]));
+  show('large', 'dark', [[ '128', std[128] ], [ '256', std[256] ], [ 'maskable 192', await render(192, true) ]]);
+
+  const links = document.getElementById('links');
+  for (const [path, blob] of files) {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = path.split('/').pop();
+    a.textContent = path; links.append(a);
+  }
+  // Optional: ?save=<url prefix> uploads every file with PUT (for a local helper server that accepts uploads)
+  const save = new URLSearchParams(location.search).get('save');
+  const status = document.getElementById('status');
+  if (save) {
+    let ok = 0;
+    for (const [path, blob] of files) { const r = await fetch(save + path, { method: 'PUT', body: blob }); if (r.ok) ok++; }
+    status.textContent = `saved ${ok} of ${files.length} files to ${save}`;
+  } else status.textContent = `${files.length} files ready`;
+  window.iconFiles = files.map(([p, b]) => [p, b.size]);
+})().catch((e) => { document.getElementById('status').textContent = 'Error: ' + e.message; throw e; });
+</script>
+</body>
+</html>
