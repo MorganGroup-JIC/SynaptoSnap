@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CZI Volume Studio</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" sizes="any" href="icon.svg">
+<link rel="icon" type="image/png" sizes="256x256" href="icon.png">
+<style>
+  :root {
+    --bg: #101216; --panel: #181b21; --well: #13161b; --line: #2a2f38; --text: #e6e8ec;
+    --muted: #8d95a3; --accent: #5ec8a8; --accent-ink: #06231b; --danger: #e5645a; --warn: #e8b04a;
+    --ctl: #22262e; --ctl-hover: #282d37;
+    --left-def: 300px; --right-def: 340px; /* default side panel widths; js/layout.js sets --left-w / --right-w */
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 13px/1.4 "Segoe UI", system-ui, sans-serif;
+    display: grid; grid-template-columns: var(--left-w, var(--left-def)) minmax(0, 1fr) var(--right-w, var(--right-def)); grid-template-rows: 46px minmax(0, 1fr) 28px;
+    grid-template-areas: "top top top" "left main right" "status status status";
+    overflow: hidden;
+  }
+  header#top { grid-area: top; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .brand { font-weight: 600; font-size: 15px; letter-spacing: .02em; margin-right: 6px; white-space: nowrap; }
+  .brand b { color: var(--accent); font-weight: 600; }
+  .brand-icon { width: 22px; height: 22px; vertical-align: -6px; margin-right: 7px; }
+  .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
+  .spacer { flex: 1; }
+  #fileLabel { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 32vw; }
+  aside { background: var(--panel); overflow-y: auto; padding: 10px 14px 24px; min-height: 0; }
+  #left { grid-area: left; border-right: 1px solid var(--line); }
+  #right { grid-area: right; border-left: 1px solid var(--line); padding-top: 0; }
+  main { grid-area: main; position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  footer#status { grid-area: status; display: flex; align-items: center; gap: 14px; padding: 0 12px; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+  #statusMsg { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+  #hoverInfo { color: var(--text); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; min-width: 0; }
+  #prog { width: 140px; height: 6px; background: var(--ctl); border-radius: 3px; overflow: hidden; visibility: hidden; flex: none; }
+  #progBar { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  #btnCancel { padding: 1px 8px; font-size: 12px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 16px 0 8px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 6px; font-weight: 600; }
+  h2:first-child { border-top: none; margin-top: 6px; padding-top: 0; }
+  h2 .actions { margin-left: auto; display: flex; gap: 3px; }
+  .row { display: grid; grid-template-columns: 96px 1fr 64px; gap: 8px; align-items: center; margin: 5px 0; }
+  .row label, .row2 label { color: var(--muted); font-size: 12px; }
+  .row2 { display: grid; grid-template-columns: 112px 1fr; gap: 8px; align-items: center; margin: 6px 0; }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
+  select, button, input[type=number], input[type=text] {
+    font: inherit; color: var(--text); background: var(--ctl); border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; min-width: 0;
+  }
+  input[type=number] { padding: 3px 4px; font-variant-numeric: tabular-nums; }
+  select, input[type=number], input[type=text] { width: 100%; }
+  input[type=color] { width: 40px; height: 26px; padding: 0 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--ctl); cursor: pointer; }
+  button { cursor: pointer; white-space: nowrap; }
+  button:hover:not(:disabled) { border-color: #47505f; background: var(--ctl-hover); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+  button.wide { width: 100%; margin: 8px 0 4px; padding: 6px; }
+  button.icon { padding: 1px 7px; line-height: 1.2; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  button.chip { width: 22px; height: 22px; padding: 0; border-radius: 50%; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  .btns button { flex: 1 1 auto; }
+  .btns.right { justify-content: flex-end; }
+  .btns.right button { flex: 0 0 auto; min-width: 84px; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; background: transparent; padding: 5px 11px; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .seg.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .seg.grid3 button { border-left: none; border-bottom: 1px solid var(--line); padding: 6px 2px; }
+  .seg.grid3 button:nth-child(3n+2), .seg.grid3 button:nth-child(3n+3) { border-left: 1px solid var(--line); }
+  .seg.grid3 button:nth-last-child(-n+3) { border-bottom: none; }
+  .seg.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); }
+  .seg.grid4 button { padding: 6px 2px; }
+  .seg.grid4 button + button { border-left: 1px solid var(--line); }
+  details.moretools { margin: 4px 0 2px; }
+  details.moretools > summary { cursor: pointer; color: var(--muted); font-size: 11.5px; margin-bottom: 4px; }
+  .check { display: flex; gap: 7px; align-items: center; margin: 5px 0; color: var(--muted); cursor: pointer; }
+  .check input { accent-color: var(--accent); margin: 0; }
+  .checks { display: grid; grid-template-columns: 1fr 1fr; column-gap: 8px; }
+  .inline { display: flex; gap: 6px; align-items: center; }
+  .inline input[type=number] { width: 70px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  p.desc { color: var(--muted); font-size: 12px; margin: 4px 0 8px; }
+  label.sub { display: block; color: var(--muted); font-size: 12px; margin: 8px 0 4px; }
+  /* tabs */
+  .tabs { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: repeat(4, 1fr); background: var(--panel); border-bottom: 1px solid var(--line); margin: 0 -14px 6px; }
+  .tabs button { border: none; border-radius: 0; background: transparent; padding: 11px 4px 9px; color: var(--muted); border-bottom: 2px solid transparent; font-weight: 600; }
+  .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+  .opselect { font-weight: 600; }
+  .opform { margin-top: 6px; }
+  .preview-row { display: flex; align-items: center; gap: 10px; }
+  /* layers */
+  #layerList { display: flex; flex-direction: column; gap: 3px; }
+  .layer-row { display: grid; grid-template-columns: 18px 26px 1fr auto auto; align-items: center; gap: 7px; padding: 5px 6px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; }
+  .layer-row:hover { background: var(--ctl); }
+  .layer-row.sel { background: var(--ctl); border-color: var(--accent); }
+  .layer-row.points { grid-template-columns: 18px 26px 1fr auto auto; cursor: default; }
+  .layer-row .eye { accent-color: var(--accent); margin: 0; cursor: pointer; }
+  .swatch { display: inline-block; width: 26px; height: 12px; border-radius: 3px; border: 1px solid #0006; flex: none; }
+  .lname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ltag { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; text-transform: uppercase; letter-spacing: .04em; }
+  .ltag.mask { color: #ffb3b3; border-color: #5b3434; }
+  .ltag.labels { color: #b3d4ff; border-color: #34465b; }
+  input.rename { padding: 1px 4px; }
+  input.mini-color { width: 26px; height: 16px; border-radius: 3px; padding: 0; }
+  .empty { color: var(--muted); padding: 8px 2px; }
+  canvas.hist { width: 100%; height: 84px; display: block; border-radius: 5px; cursor: ew-resize; margin: 4px 0; touch-action: none; }
+  details.hist-log { margin-top: 10px; font-size: 12px; color: var(--muted); }
+  details.hist-log ol { margin: 4px 0 0; padding-left: 18px; }
+  details summary { cursor: pointer; }
+  #infoPanel details { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+  #infoPanel summary { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); font-weight: 600; }
+  table.info { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
+  table.info th { text-align: left; color: var(--muted); font-weight: normal; padding: 2px 8px 2px 0; vertical-align: top; white-space: nowrap; }
+  table.info td { padding: 2px 0; word-break: break-word; }
+  .vox-row { margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .vox-row > div { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+  .vox-row input.vox { width: 56px; }
+  /* viewport */
+  #views { flex: 1; display: grid; min-height: 0; gap: 2px; background: var(--line); position: relative; }
+  .view { position: relative; overflow: hidden; background: #000; min-width: 0; min-height: 0; }
+  .view canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #overlay { cursor: grab; touch-action: none; }
+  #overlay:active { cursor: grabbing; }
+  .slice-canvas { cursor: crosshair; touch-action: none; }
+  body.tool-line .slice-canvas { cursor: copy; }
+  .view-badge { position: absolute; left: 8px; top: 6px; font-size: 11px; color: #fffc; background: #0009; padding: 2px 7px; border-radius: 4px; pointer-events: none; font-variant-numeric: tabular-nums; }
+  body[data-view="3d"] #views { grid-template-areas: "a"; grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  body[data-view="3d"] #vxy, body[data-view="3d"] #vxz, body[data-view="3d"] #vyz { display: none; }
+  body[data-view="3d"] #v3d { grid-area: a; }
+  body[data-view="xy"] #views { grid-template-areas: "a"; grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  body[data-view="xy"] #v3d, body[data-view="xy"] #vxz, body[data-view="xy"] #vyz { display: none; }
+  body[data-view="xy"] #vxy { grid-area: a; }
+  body[data-view="ortho"] #views { grid-template-areas: "xy yz" "xz d3"; }
+  body[data-view="ortho"] #vxy { grid-area: xy; } body[data-view="ortho"] #vyz { grid-area: yz; }
+  body[data-view="ortho"] #vxz { grid-area: xz; } body[data-view="ortho"] #v3d { grid-area: d3; }
+  #zbar { display: none; align-items: center; gap: 10px; padding: 6px 12px; background: var(--panel); border-top: 1px solid var(--line); }
+  body[data-view="xy"].has-data #zbar { display: flex; }
+  #zbar input { flex: 1; }
+  #zLabel { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 180px; text-align: right; }
+  #dropHint { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); pointer-events: none; text-align: center; padding: 30px; }
+  #dropHint .big { font-size: 18px; color: var(--text); }
+  body.has-data #dropHint { display: none; }
+  body.dragging #viewport::after { content: "Drop the .czi file to open it"; position: absolute; inset: 10px; border: 2px dashed var(--accent); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; color: var(--accent); background: #101216cc; z-index: 5; }
+  .gl-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--danger); padding: 30px; text-align: center; }
+  body.busy #right .primary { pointer-events: none; opacity: .6; }
+  /* analysis */
+  details.section { border-top: 1px solid var(--line); padding: 10px 0 6px; }
+  details.section:first-child { border-top: none; }
+  details.section > summary { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); font-weight: 600; }
+  .result:empty { display: none; }
+  .result { margin-top: 6px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
+  .stat { background: var(--well); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+  .stat-label { font-size: 11px; color: var(--muted); }
+  .stat-value { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stat-sub { font-size: 11px; color: var(--muted); }
+  canvas.chart { width: 100%; height: 150px; display: block; background: var(--well); border-radius: 6px; margin: 6px 0; }
+  .specrow { display: grid; grid-template-columns: 1fr 96px; gap: 6px; align-items: center; }
+  .specrow canvas.psimg { width: 96px; height: 96px; border-radius: 6px; image-rendering: pixelated; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); }
+  .legend i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .filter { display: grid; grid-template-columns: auto 1.4fr 1fr 1fr auto; gap: 4px; align-items: center; margin: 6px 0; }
+  .inline-check { margin: 0; white-space: nowrap; font-size: 12px; }
+  .tablewrap { max-height: 280px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+  table.data { border-collapse: collapse; width: 100%; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  table.data th { position: sticky; top: 0; background: var(--ctl); text-align: right; padding: 4px 6px; cursor: pointer; white-space: nowrap; font-weight: 600; color: var(--muted); }
+  table.data td { text-align: right; padding: 2px 6px; border-top: 1px solid var(--line); white-space: nowrap; }
+  table.data tr { cursor: pointer; }
+  table.data tbody tr:hover { background: var(--ctl); }
+  table.data tr.sel { background: #5ec8a833; }
+  .infobox { border: 1px solid #2c5a4d; background: #13261f; color: #bfe8da; border-radius: 6px; padding: 6px 8px; font-size: 12px; margin: 6px 0; }
+  .warnbox { border: 1px solid #6b5326; background: #2a2416; color: #f0d79a; border-radius: 6px; padding: 6px 8px; font-size: 12px; margin: 6px 0; }
+  .chrom-keys button { flex: 0 0 auto; min-width: 34px; border-width: 2px; font-weight: 600; }
+  table.data td.segs { padding: 1px 2px 1px 6px; }
+  table.data select.segmenu { width: 60px; padding: 0 2px 0 4px; font-size: 11.5px; border-radius: 4px; text-align: right; font-variant-numeric: tabular-nums; cursor: pointer; }
+  table.data select.segmenu.on { border-color: var(--accent); color: var(--accent); }
+  table.data select.segmenu option, table.data select.segmenu optgroup { color: var(--text); text-align: left; }
+  .seginfo { margin: 4px 0 2px; }
+  table.data td.eye { text-align: center; padding: 0 2px 0 4px; width: 18px; }
+  table.data td.eye input { margin: 0; cursor: pointer; vertical-align: middle; }
+  table.data tr.hid td:not(.eye) { opacity: 0.4; }
+  table.data tr.unrow { cursor: default; color: var(--muted); }
+  table.data td.ok { color: var(--accent); }
+  table.data td.bad { color: var(--warn); }
+  body.tool-trace .slice-canvas, body.tool-trace #overlay { cursor: pointer; }
+  #zbar .check { margin: 0; white-space: nowrap; }
+  ol.log { margin: 4px 0; padding-left: 20px; font-size: 12px; max-height: 200px; overflow: auto; color: var(--text); }
+  ol.log li { margin: 2px 0; }
+  .checklist { display: flex; flex-direction: column; gap: 0; max-height: 220px; overflow: auto; }
+  .checklist .check { color: var(--text); margin: 3px 0; }
+  /* modal & toast */
+  .modal { position: fixed; inset: 0; background: #0009; display: flex; align-items: center; justify-content: center; z-index: 20; }
+  .modal.hidden { display: none; }
+  .dialog { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow: auto; box-shadow: 0 10px 40px #000a; }
+  .dialog h3 { margin: 0 0 10px; font-size: 15px; }
+  .help table td { padding: 3px 12px 3px 0; vertical-align: top; }
+  kbd { background: var(--ctl); border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; font: inherit; font-size: 11px; white-space: nowrap; }
+  #toast { position: fixed; left: 50%; bottom: 44px; transform: translate(-50%, 20px); background: var(--ctl); border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 9px 14px; border-radius: 7px; opacity: 0; pointer-events: none; transition: all .2s; z-index: 30; max-width: 70vw; box-shadow: 0 6px 24px #0008; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.error { border-left-color: var(--danger); }
+  #toast.warn { border-left-color: var(--warn); }
+  /* layout: resizable / hideable side panels and Ortho pane splitters (js/layout.js) */
+  html.left-collapsed #left, html.right-collapsed #right { display: none; }
+  .pane-handle { position: absolute; top: 0; bottom: 0; width: 8px; z-index: 8; cursor: col-resize; touch-action: none; }
+  .pane-handle.left { left: -4px; }
+  .pane-handle.right { right: -4px; }
+  .pane-handle::before { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: var(--accent); opacity: 0; transition: opacity .12s; pointer-events: none; }
+  .pane-handle:hover::before, .pane-handle.active::before { opacity: .75; }
+  .pane-tab { position: absolute; top: 50%; width: 14px; height: 46px; margin-top: -23px; display: flex; align-items: center; justify-content: center; background: var(--panel); border: 1px solid var(--line); color: var(--muted); cursor: pointer; opacity: .6; transition: opacity .12s, color .12s; }
+  .pane-handle.left .pane-tab { left: 4px; border-left: none; border-radius: 0 7px 7px 0; }
+  .pane-handle.right .pane-tab { right: 4px; border-right: none; border-radius: 7px 0 0 7px; }
+  .pane-handle:hover .pane-tab, .pane-handle.collapsed .pane-tab { opacity: 1; }
+  .pane-tab:hover { color: var(--accent); }
+  .pane-tab svg { width: 7px; height: 12px; display: block; }
+  .pane-handle.left.collapsed .pane-tab svg, .pane-handle.right:not(.collapsed) .pane-tab svg { transform: scaleX(-1); }
+  .ortho-split { position: absolute; z-index: 4; display: none; touch-action: none; }
+  body[data-view="ortho"] .ortho-split { display: block; }
+  .ortho-split.col { top: 0; bottom: 0; width: 8px; margin-left: -4px; cursor: col-resize; }
+  .ortho-split.row { left: 0; right: 0; height: 8px; margin-top: -4px; cursor: row-resize; }
+  .ortho-split.both { width: 18px; height: 18px; margin: -9px 0 0 -9px; cursor: move; z-index: 5; }
+  .ortho-split::before { content: ""; position: absolute; background: var(--accent); opacity: 0; transition: opacity .12s, background .12s; pointer-events: none; }
+  .ortho-split.col::before { top: 0; bottom: 0; left: 3px; width: 2px; }
+  .ortho-split.row::before { left: 0; right: 0; top: 3px; height: 2px; }
+  .ortho-split.both::before { left: 5px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: #4a5260; box-shadow: 0 0 0 2px #000; opacity: .9; }
+  .ortho-split:hover::before, .ortho-split.active::before { opacity: .75; }
+  .ortho-split.both:hover::before, .ortho-split.both.active::before { background: var(--accent); opacity: 1; }
+  html.ortho-c body[data-view="ortho"] #views { grid-template-columns: var(--ortho-cols) !important; }
+  html.ortho-r body[data-view="ortho"] #views { grid-template-rows: var(--ortho-rows) !important; }
+  html.lay-drag-col, html.lay-drag-col * { cursor: col-resize !important; user-select: none !important; }
+  html.lay-drag-row, html.lay-drag-row * { cursor: row-resize !important; user-select: none !important; }
+  html.lay-drag-move, html.lay-drag-move * { cursor: move !important; user-select: none !important; }
+  @media (max-width: 1100px) { :root { --left-def: 250px; --right-def: 300px; } }
+</style>
+<script src="js/layout.js"></script>
+</head>
+<body data-view="3d">
+<header id="top">
+  <div class="brand"><img class="brand-icon" src="icon.svg" alt="" onerror="this.onerror=null;this.src='icon.png'">CZI <b>Volume</b> Studio <span id="appVer" style="font-size:10px;font-weight:400;opacity:.55;margin-left:4px"></span></div>
+  <button id="btnOpen" class="primary" title="Ctrl+O">Open CZI…</button>
+  <input type="file" id="fileInput" accept=".czi,.traces" hidden>
+  <button id="btnDemo" title="Generate a synthetic multi-channel stack to try the tools">Demo volume</button>
+  <div class="sep"></div>
+  <div class="seg" id="viewSeg">
+    <button data-view="3d" title="3D rendering (1)">3D</button>
+    <button data-view="xy" title="Single XY slice (2)">Slice</button>
+    <button data-view="ortho" title="Orthogonal XY / XZ / YZ + 3D (3)">Ortho</button>
+  </div>
+  <button id="btnSnap" title="Save the current view as PNG">Snapshot</button>
+  <div class="spacer"></div>
+  <span id="fileLabel"></span>
+  <button id="btnHelp" title="Shortcuts & help (H)">?</button>
+</header>
+
+<aside id="left">
+  <h2>Layers
+    <span class="actions">
+      <button class="icon" id="btnLayerUp" title="Move up">▲</button>
+      <button class="icon" id="btnLayerDown" title="Move down">▼</button>
+      <button class="icon" id="btnLayerDup" title="Duplicate">⧉</button>
+      <button class="icon" id="btnLayerDel" title="Delete (Shift+Del)">✕</button>
+    </span>
+  </h2>
+  <div id="layerList"></div>
+  <section id="layerPanel"></section>
+  <section id="infoPanel"></section>
+</aside>
+
+<main id="viewport">
+  <div id="views">
+    <div class="view" id="v3d"><canvas id="gl"></canvas><canvas id="overlay"></canvas><div class="view-badge" id="v3dBadge">3D</div></div>
+    <div class="view" id="vxy"></div>
+    <div class="view" id="vxz"></div>
+    <div class="view" id="vyz"></div>
+  </div>
+  <div id="zbar"><span class="muted">Z</span><input type="range" id="zSlider" min="1" max="1" value="1"><span id="zLabel"></span><label class="check" title="Show the maximum projection through all Z slices"><input type="checkbox" id="projXY"> Max projection</label></div>
+  <div id="dropHint">
+    <div class="big">Drop a .czi file here</div>
+    <div>or use <b>Open CZI…</b> — or try the <b>Demo volume</b></div>
+    <div class="small">Everything runs locally in this window; files are never uploaded.</div>
+  </div>
+</main>
+
+<aside id="right">
+  <nav class="tabs">
+    <button data-tab="render">Render</button>
+    <button data-tab="process">Process</button>
+    <button data-tab="analyze">Analyze</button>
+    <button data-tab="export">Export</button>
+  </nav>
+  <div class="tabpage" id="tab-render"></div>
+  <div class="tabpage" id="tab-process" hidden></div>
+  <div class="tabpage" id="tab-analyze" hidden></div>
+  <div class="tabpage" id="tab-export" hidden></div>
+</aside>
+
+<footer id="status">
+  <span id="statusMsg"></span>
+  <span id="hoverInfo"></span>
+  <span id="memInfo"></span>
+  <div id="prog"><div id="progBar"></div></div>
+  <button id="btnCancel" style="display:none" title="Esc">Cancel</button>
+</footer>
+
+<div id="modal" class="modal hidden"></div>
+<div id="toast"></div>
+
+<script src="js/version.js"></script>
+<script src="js/vendor/fzstd.js"></script>
+<script src="js/czi.js"></script>
+<script src="js/processing.js"></script>
+<script src="js/tracing.js"></script>
+<script src="js/colormaps.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/slices.js"></script>
+<script src="js/ops.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+<script src="js/exporter.js"></script>
+<script src="js/demo.js"></script>
+<script src="js/demo-dense.js"></script>
+<script src="js/tracepath.js"></script>
+<script src="js/tracer-ui.js"></script>
+<script src="js/traces-io.js"></script>
+<script>
+  window.app = new App();
+  document.getElementById('appVer').textContent = 'v' + APP_VERSION;
+  document.getElementById('appVer').title = 'CZI Volume Studio ' + APP_VERSION + ' · tracing engine ' + app.tracer.VERSION;
+</script>
+</body>
+</html>

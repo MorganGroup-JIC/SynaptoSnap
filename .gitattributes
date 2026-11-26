@@ -1,0 +1,5 @@
+# Source files use LF line endings; the Windows launcher keeps CRLF
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.ico binary

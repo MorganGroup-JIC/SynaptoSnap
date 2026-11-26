@@ -1,0 +1,20 @@
+# Microscopy data and annotations stay local (unpublished, and far over GitHub's file limits)
+*.czi
+*.traces
+*.traces.xml
+*.tif
+*.tiff
+*.ome.tif
+*.ims
+*.nd2
+*.lif
+
+# Exports the app may be asked to save here
+*.csv
+
+# Windows / editor clutter
+Thumbs.db
+desktop.ini
+*.lnk
+.vscode/
+.idea/
