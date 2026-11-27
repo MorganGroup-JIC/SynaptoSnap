@@ -104,6 +104,7 @@
   .roi-note b { color: var(--text); font-weight: 600; }
   .roi-note button { margin-left: 2px; padding: 1px 8px; }
   .trace-file { color: var(--muted); margin: 2px 0 6px; overflow-wrap: anywhere; }
+  .help .help-sec th { text-align: left; padding: 10px 0 3px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
   .trace-file b { color: var(--text); font-weight: 600; }
   .trace-file.unsaved { color: var(--warn); }
   p.desc { color: var(--muted); font-size: 12px; margin: 4px 0 8px; }
@@ -266,6 +267,7 @@
   <button id="btnOpen" class="primary" title="Ctrl+O">Open CZI…</button>
   <input type="file" id="fileInput" accept=".czi,.traces" hidden>
   <button id="btnDemo" title="Generate a synthetic multi-channel stack to try the tools">Demo volume</button>
+  <button id="btnUpdate" class="primary" hidden title="A newer version of SynaptoSnap has been published. Reload to use it (you are asked first if there are unsaved changes).">Reload for the new version</button>
   <button id="btnInstall" hidden title="Install SynaptoSnap as an app: its own window, a Start-menu entry and a sharp taskbar icon; it also starts without a network connection">Install app</button>
   <div class="sep"></div>
   <div class="seg" id="viewSeg">
@@ -353,8 +355,24 @@
   window.app = new App();
   document.getElementById('appVer').textContent = 'v' + APP_VERSION;
   document.getElementById('appVer').title = 'SynaptoSnap ' + APP_VERSION + ' · tracing engine ' + app.tracer.VERSION;
-  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol))
-    navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Offline use unavailable:', e.message));
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      // a new version published while the app is open: look for it now and then, and offer a reload when it is in
+      const check = () => reg.update().catch(() => {});
+      setInterval(check, 30 * 60 * 1000);
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+      let had = !!navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener('controllerchange', async () => {
+        if (!had) { had = true; return; }   // first install: this page is already the current version
+        let v = '';
+        try { v = ((await (await fetch('js/version.js', { cache: 'no-cache' })).text()).match(/APP_VERSION = '([^']+)'/) || [])[1] || ''; } catch (e) { /* offline */ }
+        if (v && v === APP_VERSION) return;
+        const b = document.getElementById('btnUpdate');
+        b.textContent = 'Reload for ' + (v ? 'v' + v : 'the new version'); b.hidden = false;
+      });
+    }).catch((e) => console.warn('Offline use unavailable:', e.message));
+    document.getElementById('btnUpdate').addEventListener('click', () => location.reload());
+  }
   // "Install app" appears when the browser offers to install SynaptoSnap (served by SynaptoSnap.bat or GitHub Pages)
   (function () {
     const btn = document.getElementById('btnInstall');

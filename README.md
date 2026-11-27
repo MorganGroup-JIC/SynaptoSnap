@@ -180,6 +180,7 @@ The file is an uncompressed CZI with the voxel size, channel names and colours, 
 
 - After updating the files, start SynaptoSnap with `SynaptoSnap.bat` so the installed app picks up the new version, or reload with `Ctrl+R`.
 - The version is shown next to the title; hover over it for the tracing engine version. The tracing panel warns when a trace was made by an older engine.
+- When a new version is published while SynaptoSnap is open (website or installed app), a **Reload for v…** button appears in the header. Online, every start loads the current version.
 - SynaptoSnap was called CZI Volume Studio until 26 November 2026.
 
 How the tracer works, how well it does on test and real nuclei, how it was tested, and the source files are described in [docs/TECHNICAL.md](docs/TECHNICAL.md).

@@ -30,7 +30,10 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
-  e.respondWith(fetch(req)
+  // 'no-cache': always ask the server (a quick "not modified" when nothing changed). Without it the browser may hand
+  // back its own cached copy, which GitHub Pages allows for 10 minutes, so a new version showed up late.
+  const fresh = req.mode === 'navigate' ? fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : fetch(req, { cache: 'no-cache' });
+  e.respondWith(fresh
     .then((res) => {
       if (res.ok && res.type === 'basic') { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
       return res;
