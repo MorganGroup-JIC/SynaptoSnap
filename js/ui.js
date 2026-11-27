@@ -1051,7 +1051,8 @@ class UI {
         k('Shift+wheel · click on it', 'Trace: move where the suggestion stops (forward = longer) · take it up to the place clicked'),
         k('1–9 · 0 · Delete', 'Trace edit mode, no trace in progress: chromosome for new traces · Unassign · Erase tool (Select mode: assign / unassign / delete the selected segment)'), k('Shift + click', 'Paint / Route: add as shared stretch'), k('B', 'Trace edit mode: toggle gap bridge'),
         k('T', 'Show / hide all traces (single chromosomes: the ticks in the trace table)'), k('[ · ]', 'Previous / next segment along the chromosome, after picking one from a Segs dropdown in the trace table (Esc clears)'),
-        k('Space', 'Auto-rotate'), k('R', 'Reset 3D view'), k('Click (slice)', 'Move cursor · select labelled object'), k('Double-click', 'Fit / reset view'), k('Esc', 'Cancel running task / close dialog'), k('Ctrl+S', 'Go to Export'), k('H', 'This help')),
+        k('Space', 'Auto-rotate'), k('R', 'Reset 3D view'), k('Click (slice)', 'Move cursor · select labelled object'), k('Double-click', 'Fit / reset view'), k('Esc', 'Cancel running task / close dialog'), k('Ctrl+S · Ctrl+Shift+S', 'Save the trace (back to its file) · Save as… — without a trace: go to Export'), k('H', 'This help')),
+      h('p', { class: 'muted small' }, 'On a Mac use Cmd instead of Ctrl for Ctrl+O, Ctrl+S and Ctrl+Z.'),
       h('p', { class: 'muted small' }, 'Supported: uncompressed, zstd and JPEG compressed CZI; Gray 8/16/32-bit and RGB; Z-stacks, channels, scenes, time points, tiled mosaics. JPEG-XR compressed files must be re-saved from ZEN without that compression.')),
       [h('button', { class: 'primary', onclick: () => this.closeModal() }, 'Close')]);
   }

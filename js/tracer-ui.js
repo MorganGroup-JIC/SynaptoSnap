@@ -2114,7 +2114,7 @@
         this.traceFileInfo = h('div', { class: 'small trace-file' }),
         h('div', { class: 'btns' },
           this.traceSaveBtn = h('button', { onclick: () => app.saveTraces() }, 'Save'),
-          h('button', { onclick: () => app.saveTracesAs({ unassigned: !!this.sntUnassigned }), title: 'Save the traces as a new SNT (Fiji) .traces file: choose its name and folder. One path per chromosome, named "Chromosome N". Save then keeps writing to that file.' }, 'Save as…')),
+          h('button', { onclick: () => app.saveTracesAs({ unassigned: !!this.sntUnassigned }), title: 'Save the traces as a new SNT (Fiji) .traces file: choose its name and folder. One path per chromosome, named "Chromosome N". Save then keeps writing to that file. (Ctrl+Shift+S)' }, 'Save as…')),
         check('Save as… includes unassigned pieces', !!this.sntUnassigned, (v) => { this.sntUnassigned = v; }, 'Also save the pieces not assigned to a chromosome, as paths named "Unassigned piece N". (Save to the file the trace came from always includes them, so nothing is dropped from it.)'),
         h('div', { class: 'btns' },
           h('button', { onclick: () => this.exportTraceLengths(), title: 'Chromosome lengths as a CSV table (asks for a name and folder)' }, 'Lengths CSV…'),
@@ -2247,8 +2247,8 @@
       if (this.traceSaveBtn) {
         this.traceSaveBtn.textContent = f && f.handle ? 'Save' : 'Save…';
         this.traceSaveBtn.title = f && f.handle
-          ? `Write the traces back to ${f.name}, unassigned pieces included${f.fromImport && !f.confirmed ? ' (asks first)' : ''}`
-          : 'Save the traces to a new file (the trace was not opened from a file this browser can write to)';
+          ? `Write the traces back to ${f.name}, unassigned pieces included${f.fromImport && !f.confirmed ? ' (asks first)' : ''} (Ctrl+S)`
+          : 'Save the traces to a new file (the trace was not opened from a file this browser can write to) (Ctrl+S)';
       }
     },
     exportTraceLengths() {

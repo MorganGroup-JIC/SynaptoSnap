@@ -143,6 +143,7 @@ Traces are saved as SNT `.traces` files, which open in Fiji: start SNT on the sa
 - **Save** writes your changes back into the file the trace came from. This works for a `.traces` file you opened in Chrome or Edge, with **Open**, **Import .traces (SNT)…**, or by dropping it on the window. Save always includes the unassigned pieces, so nothing still in the trace is dropped from the file.
   - The first time, it asks before replacing the original file: SynaptoSnap writes the file in its own way, so anything else SNT kept in it (its own path names, tags, fitted paths) is lost. Use Save as… instead to keep the original as it is.
   - Edge or Chrome may also ask once for permission to change the file.
+- **Keys:** `Ctrl+S` saves (as the Save button) and `Ctrl+Shift+S` is Save as…; on a Mac, `Cmd+S` and `Cmd+Shift+S`. Without a trace, `Ctrl+S` opens the Export tab.
 - The line above the buttons names the file the trace is saved to and shows **● unsaved changes** when there are edits since the last save. Closing the window with unsaved changes asks first.
 - **Safari and Firefox** don't let web pages write to files. There, Save and Save as… ask for a file name, and the file goes to your downloads.
 - **CSV:** **Lengths CSV…** and **Trace coordinates CSV…** (µm) also ask where to save, in the same way.

@@ -587,8 +587,17 @@ class App {
     });
     window.addEventListener('keydown', (e) => {
       const tag = (e.target.tagName || '').toLowerCase();
-      if (e.ctrlKey && e.key.toLowerCase() === 'o') { e.preventDefault(); this.pickFile(); return; }
-      if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); this.ui.showTab('export'); return; }
+      const mod = (e.ctrlKey || e.metaKey) && !e.altKey;   // Ctrl on Windows, Cmd on a Mac
+      if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); this.pickFile(); return; }
+      if (mod && e.key.toLowerCase() === 's') {
+        // with a trace: Save (back to its file, or Save as… if it has none); Shift: Save as…. Without a trace: Export tab
+        e.preventDefault();
+        if (e.repeat || !$('#modal').classList.contains('hidden')) return;   // not again while a dialog is open
+        if (!this.trace) this.ui.showTab('export');
+        else if (e.shiftKey) this.saveTracesAs({ unassigned: !!this.ui.sntUnassigned });
+        else this.saveTraces();
+        return;
+      }
       if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
       if (e.key === 'Escape') {
         if (this.tool === 'trace' && this.trace) {
