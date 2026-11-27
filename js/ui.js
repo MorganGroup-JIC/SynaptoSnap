@@ -665,7 +665,7 @@ class UI {
       h('div', { class: 'btns' }, h('button', { onclick: () => { rs.box = [0, 0, 0, 1, 1, 1]; this.refreshRender(); app.boxChanged(); } }, 'Reset box'), h('button', { onclick: () => { this.showTab('process'); app.cropToBox(); } , title: 'Permanently crop every layer to the box' }, 'Crop data to box')),
       h('h2', null, 'Clipping plane'), check('Enable clipping plane', plane.on, (v) => { plane.on = v; R(); }), row2('Normal', pAxis), pPos.el, check('Flip side', plane.flip, (v) => { plane.flip = v; R(); }));
     // camera
-    const view = (v) => { if (!app.renderer) return; app.renderer.camera.reset(v); R(); };
+    const view = (v) => app.resetCamera(v);
     this.autoRot = check('Auto-rotate (Space)', rs.autoRotate, (v) => { rs.autoRotate = v; R(); });
     host.append(h('h2', null, 'Camera'),
       h('div', { class: 'btns' }, h('button', { onclick: () => view('oblique') }, '3D'), h('button', { onclick: () => view('xy') }, 'XY'), h('button', { onclick: () => view('xz') }, 'XZ'), h('button', { onclick: () => view('yz') }, 'YZ')),

@@ -274,7 +274,7 @@ class App {
     this.spacing = v.spacing.slice();
     this.rs.box = [0, 0, 0, 1, 1, 1];
     this.rs.plane.on = false;
-    if (this.renderer) { this.renderer.setGeometry(this.dims, this.spacing); this.renderer.camera.reset(this.dims[2] > 1 ? 'oblique' : 'xy'); }
+    if (this.renderer) { this.renderer.setGeometry(this.dims, this.spacing); this.resetCamera(); }
     this.cursor = this.dims.map((d) => Math.floor(d / 2));
     const single = v.channels.length === 1;
     for (let i = v.channels.length - 1; i >= 0; i--) {
@@ -572,10 +572,11 @@ class App {
       e.preventDefault();
       if (!this.renderer) return;
       const cam = this.renderer.camera;
-      cam.dist = Math.min(20, Math.max(0.05, cam.dist * Math.exp(e.deltaY * 0.0012)));
+      cam.dist = Math.min(20, Math.max(0.02, cam.dist * Math.exp(e.deltaY * 0.0012)));
+      cam.fitted = false;   // the clipping box no longer re-zooms the view (it still re-centres it)
       kick();
     }, { passive: false });
-    el.addEventListener('dblclick', () => { if (this.renderer) { this.renderer.camera.reset(this.dims && this.dims[2] > 1 ? 'oblique' : 'xy'); this.requestRender('3d'); } });
+    el.addEventListener('dblclick', () => this.resetCamera());
   }
 
   _globalEvents() {
@@ -633,7 +634,7 @@ class App {
       if (k === '1') this.setView('3d');
       else if (k === '2') this.setView('xy');
       else if (k === '3') this.setView('ortho');
-      else if (k === 'r' || k === 'R') { this.renderer && this.renderer.camera.reset(this.dims[2] > 1 ? 'oblique' : 'xy'); this.requestRender('3d'); }
+      else if (k === 'r' || k === 'R') this.resetCamera();
       else if (k === ' ') { e.preventDefault(); this.rs.autoRotate = !this.rs.autoRotate; this.ui.syncAutoRotate(); this.requestRender('3d'); }
       else if (k === 'ArrowUp' || k === 'PageUp' || k === 'ArrowDown' || k === 'PageDown') {
         e.preventDefault();
@@ -673,6 +674,27 @@ class App {
   }
   cursorChanged() { this.requestRender('2d'); }
   /**
+   * 3D view: turn around the middle of the clipping box (the whole volume when there is none) and zoom so the box
+   * fills the view. keepZoom: only move the centre (the user has zoomed in or out since the last framing).
+   */
+  frameCamera(keepZoom = false) {
+    const R = this.renderer;
+    if (!R || !this.dims) return;
+    const cam = R.camera, b = this.rs.box, ext = R.extent || [1, 1, 1];
+    cam.target = [0, 1, 2].map((k) => ((b[k] + b[k + 3]) / 2 - 0.5) * ext[k]);   // world = (texture - 0.5) × extent
+    if (!keepZoom) {
+      cam.dist = Math.max(0.02, 2.4 * Math.max(...[0, 1, 2].map((k) => (b[k + 3] - b[k]) * ext[k])));   // 2.4: the whole volume
+      cam.fitted = true;
+    }
+  }
+  /** Reset the 3D view (R, double-click, the Camera buttons): a preset direction, framing the clipping box. */
+  resetCamera(view) {
+    if (!this.renderer) return;
+    this.renderer.camera.reset(view || (this.dims && this.dims[2] > 1 ? 'oblique' : 'xy'));
+    this.frameCamera();
+    this.requestRender('3d');
+  }
+  /**
    * Ortho: the three panes show the same place at the same scale. XY and XZ share x (left-right), XY and YZ share y
    * (up-down), XZ and YZ share z. After a pane is zoomed or panned, the other two follow.
    */
@@ -700,6 +722,8 @@ class App {
     const views = Object.values(this.sliceViews).filter((s) => s.host.clientWidth && s.fitted);
     if (this.view === 'ortho') { if (views.length) views[0].fit(); } else views.forEach((s) => s.fit());
     this.ui.syncZSlider && this.ui.syncZSlider();
+    // 3D: turn around the middle of the new box; re-zoom too, unless the user has zoomed since the view was framed
+    if (this.renderer) this.frameCamera(this.renderer.camera.fitted === false);
     this.requestRender();
   }
   selectLabel(id, jump) {
@@ -880,7 +904,7 @@ class App {
     this.dims = dims; this.spacing = spacing;
     this.table = null; this.selectedLabel = 0; this.profileLine = null; this.trace = null;
     this.rs.box = [0, 0, 0, 1, 1, 1];
-    if (this.renderer) this.renderer.setGeometry(dims, spacing);
+    if (this.renderer) { this.renderer.setGeometry(dims, spacing); this.frameCamera(this.renderer.camera.fitted === false); }   // cropped: the box is now the volume
     for (const L of this.layers) {
       L.range = L.kind === 'mask' ? [0, 1] : this.proc.minmax(L.data);
       L.hist = this.computeHist(L);
