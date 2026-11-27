@@ -1374,7 +1374,7 @@ function ProcFactory() {
 
 /* Worker entry point: receives { id, cmd, args } and posts progress / done / error. */
 function WorkerMain() {
-  let reader = null;
+  let reader = null, pool = null;
   self.onmessage = async (ev) => {
     const { id, cmd, args } = ev.data;
     const progress = (frac, msg) => self.postMessage({ id, type: 'progress', frac, msg });
@@ -1388,6 +1388,34 @@ function WorkerMain() {
         if (!reader) throw new Error('No CZI file is open');
         result = await reader.loadVolume(args.sel, progress);
         transfer = result.channels.map((c) => c.data.buffer);
+      } else if (cmd === 'czi.plan') {
+        if (!reader) throw new Error('No CZI file is open');
+        result = reader.plan(args.sel);
+      } else if (cmd === 'czi.attach') {
+        // a decoding-pool worker (App.loadPlanes): its own reader on the file, the plan's geometry, and running
+        // max projections of the planes it decodes, per channel component
+        // max projections and, for 8/16-bit data, exact counts per value (the layer histograms)
+        pool = { reader: new CZI.CZIReader(args.file), plan: args.plan, mips: new Map(), hists: new Map() };
+        result = true;
+      } else if (cmd === 'czi.plane') {
+        if (!pool) throw new Error('Decoding worker not attached to a file');
+        const r = await pool.reader.decodePlane(pool.plan, args.plane, args.fxy);
+        r.data.forEach((a, k) => {
+          const key = r.c + ':' + k, m = pool.mips.get(key), n = a.length;
+          if (!m) pool.mips.set(key, a.slice());
+          else for (let i = 0; i < n; i++) if (a[i] > m[i]) m[i] = a[i];
+          if (a instanceof Uint16Array || a instanceof Uint8Array) {
+            let h = pool.hists.get(key);
+            if (!h) pool.hists.set(key, h = new Float64Array(a instanceof Uint16Array ? 65536 : 256));
+            for (let i = 0; i < n; i++) h[a[i]]++;
+          }
+        });
+        result = r;
+        transfer = r.data.map((a) => a.buffer).concat(r.disp ? r.disp.map((a) => a.buffer) : []);
+      } else if (cmd === 'czi.mips') {
+        result = pool ? Array.from(pool.mips, ([key, m]) => ({ key, m, h: pool.hists.get(key) || null })) : [];
+        transfer = result.map((x) => x.m.buffer).concat(result.filter((x) => x.h).map((x) => x.h.buffer));
+        pool = null;
       } else if (cmd === 'op') {
         const r = await Proc.run(args, progress);
         result = r.result; transfer = r.transfer;

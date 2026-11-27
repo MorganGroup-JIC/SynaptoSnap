@@ -244,10 +244,11 @@ function CZIFactory(fzstd) {
     }
 
     /**
-     * Load a 3D volume. sel = { scene, t, channels:[C values], z0, z1 (inclusive, as C indices into dims.Z), bin, extra:{dim:value} }
-     * Returns { width, height, depth, channels:[{c, comp, comps, dtype, data}] }.
+     * What loadVolume(sel) reads, as plain data: the output size, the channels, and the tiles of every plane.
+     * A pool of workers can then decode the planes in parallel, each with its own reader on the same file
+     * (decodePlane needs no open(): every tile entry carries its file position).
      */
-    async loadVolume(sel, progress) {
+    plan(sel) {
       const S = this.summary.dims;
       const zVals = S.Z || [0];
       const zList = zVals.slice(sel.z0 || 0, (sel.z1 == null ? zVals.length - 1 : sel.z1) + 1);
@@ -273,21 +274,15 @@ function CZIFactory(fzstd) {
       const bin = Math.max(1, sel.bin | 0);
       const W = Math.floor(b.w / bin), H = Math.floor(b.h / bin), D = zList.length;
       if (W < 1 || H < 1) throw new Error('Selected region is empty');
-
-      // allocate per (channel, component)
-      const chanInfo = new Map();
+      const chans = [];
       for (const c of cVals) {
         const first = list.find((e) => (e.dims.C ? e.dims.C.start : 0) === c);
         if (!first) continue;
         const pt = PIXEL_TYPES[first.pixelType];
-        const comps = Math.min(pt.comps, 3);
-        const dtype = OUT_DTYPE[pt.sample];
-        const arrs = [];
-        for (let k = 0; k < comps; k++) arrs.push(alloc(dtype, W * H * D));
-        chanInfo.set(c, { pt, comps, dtype, arrs });
+        if (!pt) throw new Error('Unsupported CZI pixel type ' + first.pixelType);
+        chans.push({ c, pixelType: first.pixelType, comps: Math.min(pt.comps, 3), dtype: OUT_DTYPE[pt.sample], ptName: pt.name });
       }
-
-      // group tiles by plane so binning can work on a fully assembled plane
+      // group tiles by plane so binning can work on a fully assembled plane; file order keeps reads sequential
       const planes = new Map();
       for (const e of list) {
         const c = e.dims.C ? e.dims.C.start : 0;
@@ -296,40 +291,64 @@ function CZIFactory(fzstd) {
         if (!planes.has(key)) planes.set(key, { c, zi: zIndex.get(z), tiles: [] });
         planes.get(key).tiles.push(e);
       }
-      let done = 0;
-      const total = planes.size;
-      const fullW = b.w, fullH = b.h;
-      for (const plane of planes.values()) {
-        const info = chanInfo.get(plane.c);
-        if (!info) continue;
-        plane.tiles.sort((a, q) => (a.dims.M ? a.dims.M.start : 0) - (q.dims.M ? q.dims.M.start : 0));
-        let tmp = null;
-        if (bin > 1) tmp = info.arrs.map(() => alloc(info.dtype, fullW * fullH));
-        for (const e of plane.tiles) {
-          const comps = await this.decodeSubblock(e);
-          const tw = e.dims.X.stored, th = e.dims.Y.stored;
-          const ox = e.dims.X.start - b.x0, oy = e.dims.Y.start - b.y0;
-          for (let k = 0; k < info.comps; k++) {
-            if (bin > 1) blit(comps[k], tw, th, tmp[k], fullW, fullH, ox, oy, 0);
-            else blit(comps[k], tw, th, info.arrs[k], W, H, ox, oy, plane.zi * W * H);
-          }
-        }
-        if (bin > 1) for (let k = 0; k < info.comps; k++) binPlane(tmp[k], fullW, fullH, bin, info.arrs[k], W, H, plane.zi * W * H, info.dtype !== 'float32');
-        done++;
-        if (progress) progress(done / total, 'Decoding planes ' + done + '/' + total);
-      }
+      for (const p of planes.values()) p.tiles.sort((a, q) => (a.dims.M ? a.dims.M.start : 0) - (q.dims.M ? q.dims.M.start : 0));
+      const order = Array.from(planes.values()).filter((p) => chans.some((q) => q.c === p.c));
+      order.sort((a, q) => a.tiles[0].filePos - q.tiles[0].filePos);
+      return { W, H, D, bin, zValues: zList, x0: b.x0, y0: b.y0, fullW: b.w, fullH: b.h, chans, planes: order };
+    }
 
-      const channels = [];
-      for (const c of cVals) {
-        const info = chanInfo.get(c);
-        if (!info) continue;
-        for (let k = 0; k < info.comps; k++) {
-          channels.push({ c, comp: info.comps > 1 ? ['B', 'G', 'R'][k] : null, comps: info.comps, dtype: info.dtype, data: info.arrs[k], pixelType: info.pt.name });
+    /**
+     * Decode one plane of a plan (all its tiles, binned if the plan says so) into one W*H array per component.
+     * Also returns each component's min/max, and, when fxy > 1, an fxy × fxy box-averaged copy for the 3D display.
+     */
+    async decodePlane(plan, plane, fxy = 1) {
+      const ch = plan.chans.find((q) => q.c === plane.c);
+      const { W, H, bin, fullW, fullH } = plan;
+      const data = [], tmp = [];
+      for (let k = 0; k < ch.comps; k++) { data.push(alloc(ch.dtype, W * H)); if (bin > 1) tmp.push(alloc(ch.dtype, fullW * fullH)); }
+      for (const e of plane.tiles) {
+        const comps = await this.decodeSubblock(e);
+        const tw = e.dims.X.stored, th = e.dims.Y.stored;
+        const ox = e.dims.X.start - plan.x0, oy = e.dims.Y.start - plan.y0;
+        for (let k = 0; k < ch.comps; k++) {
+          if (bin > 1) blit(comps[k], tw, th, tmp[k], fullW, fullH, ox, oy, 0);
+          else blit(comps[k], tw, th, data[k], W, H, ox, oy, 0);
         }
       }
-      // BGR → present as R, G, B order
+      if (bin > 1) for (let k = 0; k < ch.comps; k++) binPlane(tmp[k], fullW, fullH, bin, data[k], W, H, 0, ch.dtype !== 'float32');
+      const min = [], max = [], disp = [];
+      for (let k = 0; k < ch.comps; k++) {
+        const a = data[k];
+        let lo = Infinity, hi = -Infinity;
+        for (let i = 0, n = a.length; i < n; i++) { const v = a[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+        min.push(lo); max.push(hi);
+        if (fxy > 1) disp.push(boxPlane(a, W, H, fxy, ch.dtype));
+      }
+      return { c: plane.c, zi: plane.zi, data, min, max, disp: fxy > 1 ? disp : null };
+    }
+
+    /**
+     * Load a 3D volume. sel = { scene, t, channels:[C values], z0, z1 (inclusive, as C indices into dims.Z), bin, extra:{dim:value} }
+     * Returns { width, height, depth, channels:[{c, comp, comps, dtype, data, range}] }.
+     * (One worker, plane after plane. App.loadPlanes decodes the same planes with a pool of workers.)
+     */
+    async loadVolume(sel, progress) {
+      const plan = this.plan(sel), { W, H, D } = plan, P = W * H;
+      const arrs = new Map(plan.chans.map((ch) => [ch.c, { ch, arrs: Array.from({ length: ch.comps }, () => alloc(ch.dtype, P * D)), lo: [], hi: [] }]));
+      let done = 0;
+      for (const plane of plan.planes) {
+        const r = await this.decodePlane(plan, plane), a = arrs.get(plane.c);
+        r.data.forEach((d, k) => { a.arrs[k].set(d, plane.zi * P); a.lo[k] = Math.min(a.lo[k] ?? Infinity, r.min[k]); a.hi[k] = Math.max(a.hi[k] ?? -Infinity, r.max[k]); });
+        done++;
+        if (progress) progress(done / plan.planes.length, 'Decoding planes ' + done + '/' + plan.planes.length);
+      }
+      const channels = [];
+      for (const { ch, arrs: list, lo, hi } of arrs.values()) {
+        list.forEach((data, k) => channels.push({ c: ch.c, comp: ch.comps > 1 ? ['B', 'G', 'R'][k] : null, comps: ch.comps, dtype: ch.dtype, data, pixelType: ch.ptName,
+          range: isFinite(lo[k]) ? [lo[k], hi[k]] : [0, 0] }));
+      }
       channels.sort((a, q) => (a.c - q.c) || (compOrder(a.comp) - compOrder(q.comp)));
-      return { width: W, height: H, depth: D, zValues: zList, bin, channels, origin: { x: b.x0, y: b.y0 } };
+      return { width: W, height: H, depth: D, zValues: plan.zValues, bin: plan.bin, channels, origin: { x: plan.x0, y: plan.y0 } };
     }
   }
 
@@ -426,6 +445,23 @@ function CZIFactory(fzstd) {
         dst[base + y * dw + x] = round ? Math.round(s * inv) : s * inv;
       }
     }
+  }
+
+  /** f × f box mean of a W×H plane (partial boxes at the right and bottom edges), for the 3D display texture. */
+  function boxPlane(src, W, H, f, dtype) {
+    const tw = Math.ceil(W / f), th = Math.ceil(H / f), out = alloc(dtype, tw * th), acc = new Float64Array(tw);
+    const round = dtype !== 'float32', lastW = W - (tw - 1) * f;
+    for (let ty = 0; ty < th; ty++) {
+      acc.fill(0);
+      const y0 = ty * f, y1 = Math.min(H, y0 + f);
+      for (let y = y0; y < y1; y++) {
+        const row = y * W;
+        for (let tx = 0, x = 0; tx < tw; tx++) { const xe = Math.min(W, x + f); let s = 0; for (; x < xe; x++) s += src[row + x]; acc[tx] += s; }
+      }
+      const rows = y1 - y0;
+      for (let tx = 0; tx < tw; tx++) { const v = acc[tx] / (rows * (tx === tw - 1 ? lastW : f)); out[ty * tw + tx] = round ? Math.round(v) : v; }
+    }
+    return out;
   }
 
   // ----------------------------------------------------------------- writer

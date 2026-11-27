@@ -174,30 +174,56 @@ class VolumeRenderer {
   }
 
   /** Downsampling factors so that the texture fits limits. budget = max voxels per texture. */
-  textureFactors(budget) {
-    const [W, H, D] = this.dims, max = this.maxTex3D;
+  textureFactors(budget, dims = this.dims) {
+    const [W, H, D] = dims, max = this.maxTex3D;
     let fz = Math.max(1, Math.ceil(D / max)), fxy = Math.max(1, Math.ceil(Math.max(W, H) / max));
     while ((Math.ceil(W / fxy) * Math.ceil(H / fxy) * Math.ceil(D / fz)) > budget) fxy++;
     return [fxy, fz];
   }
 
+  /**
+   * Upload a layer as a 3D texture, reduced to fit the budget. The texture is filled in as few calls as possible:
+   * one whole-volume call up to 64 M voxels, slabs above that. (Slice-by-slice uploads made some GPUs clear and
+   * re-copy the texture, which froze the window for seconds while channels loaded.)
+   * layer.texPlanes = { fxy, data }: the loader's fxy × fxy box-averaged planes; with them a reduced texture needs no
+   * pass over the full-resolution data.
+   */
   uploadLayer(layer, budget) {
     const gl = this.gl;
     this.deleteLayer(layer.id);
     const [W, H, D] = this.dims;
     const [fxy, fz] = this.textureFactors(budget);
-    const tw = Math.ceil(W / fxy), th = Math.ceil(H / fxy), td = Math.ceil(D / fz);
+    const tw = Math.ceil(W / fxy), th = Math.ceil(H / fxy), td = Math.ceil(D / fz), TP = tw * th;
     const src = layer.data, P = W * H;
+    const slab = Math.max(1, Math.min(td, Math.floor(64e6 / TP)));   // texture slices per upload call
+    const upload = (internal, format, type, integer, fill) => {
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_3D, tex);
+      const f = integer ? gl.NEAREST : gl.LINEAR;
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, f);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, f);
+      for (const w of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_3D, w, gl.CLAMP_TO_EDGE);
+      if (slab >= td) {
+        const buf = fill(0, td);
+        gl.texImage3D(gl.TEXTURE_3D, 0, internal, tw, th, td, 0, format, type, buf);
+      } else {
+        gl.texStorage3D(gl.TEXTURE_3D, 1, internal, tw, th, td);
+        for (let z = 0; z < td; z += slab) { const n = Math.min(slab, td - z); gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, z, tw, th, n, format, type, fill(z, n)); }
+      }
+      return tex;
+    };
     let tex;
     if (layer.kind === 'labels') {
       const u32 = src instanceof Uint32Array;
-      tex = this._makeTex3D(u32 ? gl.R32UI : gl.R16UI, gl.RED_INTEGER, u32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, [tw, th, td], null, true);
-      const slice = u32 ? new Uint32Array(tw * th) : new Uint16Array(tw * th);
-      for (let z = 0; z < td; z++) {
-        const sz = Math.min(D - 1, z * fz);
-        for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) slice[y * tw + x] = src[sz * P + Math.min(H - 1, y * fxy) * W + Math.min(W - 1, x * fxy)];
-        gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, z, tw, th, 1, gl.RED_INTEGER, u32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, slice);
-      }
+      tex = upload(u32 ? gl.R32UI : gl.R16UI, gl.RED_INTEGER, u32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, true, (z0, n) => {
+        const buf = u32 ? new Uint32Array(TP * n) : new Uint16Array(TP * n);
+        for (let z = 0; z < n; z++) {
+          const sz = Math.min(D - 1, (z0 + z) * fz), o = z * TP;
+          if (fxy === 1) buf.set(src.subarray(sz * P, sz * P + P), o);
+          else for (let y = 0; y < th; y++) { const row = sz * P + Math.min(H - 1, y * fxy) * W; for (let x = 0; x < tw; x++) buf[o + y * tw + x] = src[row + Math.min(W - 1, x * fxy)]; }
+        }
+        return buf;
+      });
     } else {
       // 8-bit data -> R8; everything else -> R16F, converted to half floats here (letting the driver
       // convert FLOAT data is extremely slow on some Windows/ANGLE setups).
@@ -205,37 +231,52 @@ class VolumeRenderer {
       const sc = 1 / ((hi - lo) || 1);
       const use8 = layer.dtype === 'uint8';
       const type = use8 ? gl.UNSIGNED_BYTE : gl.HALF_FLOAT;
-      tex = this._makeTex3D(use8 ? gl.R8 : gl.R16F, gl.RED, type, [tw, th, td], null, false);
-      const slice = new (use8 ? Uint8Array : Uint16Array)(tw * th);
       const HALF = VolumeRenderer.halfTable();
       let rawTab = null;
       if (layer.dtype === 'uint16') {
         rawTab = new Uint16Array(65536);
         for (let r = 0; r < 65536; r++) { let v = (r - lo) * sc; v = v < 0 ? 0 : v > 1 ? 1 : v; rawTab[r] = HALF[Math.round(v * 65535)]; }
       }
-      const enc = use8 ? (v) => v * 255 : (v) => { let q = (v * 65535 + 0.5) | 0; q = q < 0 ? 0 : q > 65535 ? 65535 : q; return HALF[q]; };
-      for (let z = 0; z < td; z++) {
-        if (fxy === 1 && fz === 1) {
-          const o = z * P;
-          if (rawTab) for (let i = 0; i < P; i++) slice[i] = rawTab[src[o + i]];
-          else if (use8) { const m = 255 * sc; for (let i = 0; i < P; i++) slice[i] = (src[o + i] - lo) * m; }
-          else { const m = 65535 * sc; for (let i = 0; i < P; i++) { let q = ((src[o + i] - lo) * m + 0.5) | 0; q = q < 0 ? 0 : q > 65535 ? 65535 : q; slice[i] = HALF[q]; } }
-        } else {
-          for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) {
-            let s = 0, c = 0;
-            for (let dz = 0; dz < fz; dz++) {
-              const zz = z * fz + dz; if (zz >= D) break;
-              for (let dy = 0; dy < fxy; dy++) {
-                const yy = y * fxy + dy; if (yy >= H) break;
-                const row = zz * P + yy * W;
-                for (let dx = 0; dx < fxy; dx++) { const xx = x * fxy + dx; if (xx >= W) break; s += src[row + xx]; c++; }
-              }
+      const m8 = 255 * sc, m16 = 65535 * sc;
+      const enc16 = (v) => { let q = ((v - lo) * m16 + 0.5) | 0; q = q < 0 ? 0 : q > 65535 ? 65535 : q; return HALF[q]; };
+      // a reduced texture: means of fxy × fxy × fz blocks, from the loader's box-averaged planes when there are
+      // some, else in one sequential pass per block row (sums along x first, then over rows and z)
+      const tp = layer.texPlanes && layer.texPlanes.fxy === fxy && layer.texPlanes.data.length === TP * D ? layer.texPlanes.data : null;
+      const reduce = fxy > 1 || fz > 1;
+      const xOut = new Int32Array(W), wOf = new Float64Array(tw), acc = reduce ? new Float64Array(TP) : null;
+      for (let x = 0; x < W; x++) { xOut[x] = (x / fxy) | 0; wOf[xOut[x]]++; }
+      tex = upload(use8 ? gl.R8 : gl.R16F, gl.RED, type, false, (z0, n) => {
+        const buf = new (use8 ? Uint8Array : Uint16Array)(TP * n);
+        for (let z = 0; z < n; z++) {
+          const o = z * TP;
+          if (fxy === 1 && fz === 1) {
+            const s = (z0 + z) * P;
+            if (rawTab) for (let i = 0; i < P; i++) buf[o + i] = rawTab[src[s + i]];
+            else if (use8) for (let i = 0; i < P; i++) buf[o + i] = (src[s + i] - lo) * m8;
+            else for (let i = 0; i < P; i++) buf[o + i] = enc16(src[s + i]);
+            continue;
+          }
+          acc.fill(0);
+          const zs = (z0 + z) * fz, ze = Math.min(D, zs + fz), nz = ze - zs;
+          if (tp && nz === 1) {
+            const b = zs * TP;
+            if (rawTab) for (let i = 0; i < TP; i++) buf[o + i] = rawTab[tp[b + i]];
+            else if (use8) for (let i = 0; i < TP; i++) buf[o + i] = (tp[b + i] - lo) * m8;
+            else for (let i = 0; i < TP; i++) buf[o + i] = enc16(tp[b + i]);
+          } else if (tp) {
+            for (let zz = zs; zz < ze; zz++) { const b = zz * TP; for (let i = 0; i < TP; i++) acc[i] += tp[b + i]; }
+            for (let i = 0; i < TP; i++) { const v = acc[i] / nz; buf[o + i] = use8 ? (v - lo) * m8 : enc16(v); }
+          } else {
+            for (let y = 0; y < th; y++) {
+              const ys = y * fxy, ye = Math.min(H, ys + fxy), ro = y * tw;
+              for (let zz = zs; zz < ze; zz++) for (let yy = ys; yy < ye; yy++) { const row = zz * P + yy * W; for (let x = 0; x < W; x++) acc[ro + xOut[x]] += src[row + x]; }
+              const cnt = nz * (ye - ys);
+              for (let x = 0; x < tw; x++) { const v = acc[ro + x] / (cnt * wOf[x]); buf[o + ro + x] = use8 ? (v - lo) * m8 : enc16(v); }
             }
-            slice[y * tw + x] = enc(((c ? s / c : 0) - lo) * sc);
           }
         }
-        gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, z, tw, th, 1, gl.RED, type, slice);
-      }
+        return buf;
+      });
     }
     this.textures.set(layer.id, { tex, dims: [tw, th, td], factor: [fxy, fz], kind: layer.kind, range: layer.range.slice() });
     return { dims: [tw, th, td], factor: [fxy, fz] };

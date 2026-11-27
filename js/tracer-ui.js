@@ -255,17 +255,30 @@
    * (|λ1| − |λ2|) / (|λ1| + |λ2|) of the Hessian (λ1 the curvature across a bright line) and averaged.
    * On the 1804 / 1805 nuclei: ZYP1 (T2) 0.55 / 0.53, the other channels 0.35–0.41.
    */
-  function lineScore(L, dims, spacing) {
-    const [W, H, D] = dims, P = W * H, I = L.data;
-    const M = new Float32Array(P);
-    for (let z = 0; z < D; z++) { const o = z * P; for (let i = 0; i < P; i++) { const v = I[o + i]; if (v > M[i]) M[i] = v; } }
+  function lineScore(mip, dims, spacing) {
+    // mip: the channel's max projection along Z (projectedXY, made by the loader for opened channels). Large images
+    // are max-pooled to at most ~1.5 M pixels first: the score is a statistic over the brightest pixels, and on a
+    // 2560 × 2560 stack this saves seconds per channel. Images up to that size are scored exactly as before.
+    let [W, H] = dims, sx = spacing[0], M;
+    const f = Math.max(1, Math.ceil(Math.sqrt(W * H / 1.5e6)));
+    if (f > 1) {
+      const w2 = Math.floor(W / f), h2 = Math.floor(H / f);
+      M = new Float32Array(w2 * h2);
+      for (let y = 0; y < h2; y++) for (let x = 0; x < w2; x++) {
+        let m = -Infinity;
+        for (let j = 0; j < f; j++) { const row = (y * f + j) * W + x * f; for (let i = 0; i < f; i++) if (mip[row + i] > m) m = mip[row + i]; }
+        M[y * w2 + x] = m;
+      }
+      W = w2; H = h2; sx *= f;
+    } else M = Float32Array.from(mip);
+    const P = W * H;
     const smp = [];
     for (let i = 0; i < P; i += 7) smp.push(M[i]);
     smp.sort((a, b) => a - b);
     const med = smp[smp.length >> 1], hi = smp[Math.floor(0.995 * (smp.length - 1))];
     const sc = hi - med || 1;
     for (let i = 0; i < P; i++) M[i] = Math.max(0, (M[i] - med) / sc);
-    const sg = Math.max(1, 0.07 / spacing[0]), r = Math.ceil(3 * sg), k = [];
+    const sg = Math.max(1, 0.07 / sx), r = Math.ceil(3 * sg), k = [];
     let ks = 0;
     for (let i = -r; i <= r; i++) { const v = Math.exp(-(i * i) / (2 * sg * sg)); k.push(v); ks += v; }
     for (let i = 0; i < k.length; i++) k[i] /= ks;
@@ -1398,7 +1411,7 @@
       let best = null, bs = -1;
       for (const L of pool) {
         let s = this._lineScore.get(L.data);
-        if (s == null) { s = lineScore(L, this.dims, this.spacing); this._lineScore.set(L.data, s); }
+        if (s == null) { s = lineScore(projectedXY(this, L), this.dims, this.spacing); this._lineScore.set(L.data, s); }
         if (s > bs) { bs = s; best = L; }
       }
       return best;

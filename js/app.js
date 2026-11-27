@@ -120,8 +120,9 @@ class App {
     if (msg) this.status(msg + ' — ' + Math.round(f * 100) + '%');
   }
   async task(msg, fn) {
-    if (this.worker.busy) { this.toast('Another operation is still running'); return null; }
+    if (this.worker.busy || this.taskRunning) { this.toast('Another operation is still running'); return null; }
     this.busy(true, msg);
+    this.taskRunning = true;
     const t0 = performance.now();
     try {
       const r = await fn((f, m) => this.progress(f, m || msg));
@@ -131,13 +132,77 @@ class App {
       if (e.cancelled) this.status('Cancelled.');
       else this.error(e.message || String(e));
       return null;
-    } finally { this.busy(false); }
+    } finally { this.taskRunning = false; this.busy(false); }
+  }
+
+  /** Background workers that decode planes of a file in parallel (one fewer than the CPU cores, at most 8). */
+  decodePool() {
+    const n = Math.max(0, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
+    this.pool = this.pool || [];
+    while (this.pool.length < n) this.pool.push(new WorkerHost());
+    return this.pool;
+  }
+  /**
+   * Decode the selected part of the open CZI with the decoding pool: each worker reads and decodes whole planes
+   * straight from the file, and also returns each plane's min/max, a box-averaged copy for the 3D texture (when
+   * that is reduced) and, at the end, its share of the max projection. So nothing has to pass over the whole
+   * volume again on the main thread. Same result as the single-worker 'czi.load'.
+   */
+  async loadPlanes(file, sel, progress) {
+    const plan = await this.worker.call('czi.plan', { sel });
+    const pool = plan.planes.length > 1 ? this.decodePool() : [];
+    if (pool.length < 2) return this.worker.call('czi.load', { sel }, [], progress);
+    const { W, H, D } = plan, P = W * H;
+    const fxy = this.renderer ? this.renderer.textureFactors(this.budgetVoxels(), [W, H, D])[0] : 1;
+    const TP = Math.ceil(W / fxy) * Math.ceil(H / fxy);
+    const make = (dtype, n) => new ({ uint8: Uint8Array, uint16: Uint16Array }[dtype] || Float32Array)(n);
+    const out = new Map(plan.chans.map((ch) => [ch.c, {
+      ch, data: Array.from({ length: ch.comps }, () => make(ch.dtype, P * D)), lo: [], hi: [],
+      disp: fxy > 1 ? Array.from({ length: ch.comps }, () => make(ch.dtype, TP * D)) : null,
+    }]));
+    const head = Object.assign({}, plan, { planes: null });
+    await Promise.all(pool.map((w) => w.call('czi.attach', { file, plan: head })));
+    const queue = plan.planes.slice();
+    let done = 0;
+    const run = async (w) => {
+      for (let pl = queue.shift(); pl; pl = queue.shift()) {
+        const r = await w.call('czi.plane', { plane: pl, fxy }), o = out.get(r.c);
+        r.data.forEach((a, k) => {
+          o.data[k].set(a, r.zi * P);
+          o.lo[k] = Math.min(o.lo[k] ?? Infinity, r.min[k]); o.hi[k] = Math.max(o.hi[k] ?? -Infinity, r.max[k]);
+          if (r.disp) o.disp[k].set(r.disp[k], r.zi * TP);
+        });
+        done++;
+        progress(done / plan.planes.length, 'Decoding planes ' + done + '/' + plan.planes.length);
+      }
+    };
+    await Promise.all(pool.map(run));
+    const mips = new Map(), hists = new Map();
+    for (const parts of await Promise.all(pool.map((w) => w.call('czi.mips', {})))) {
+      for (const { key, m, h } of parts) {
+        const cur = mips.get(key);
+        if (!cur) mips.set(key, m); else for (let i = 0; i < P; i++) if (m[i] > cur[i]) cur[i] = m[i];
+        if (h) { const hc = hists.get(key); if (!hc) hists.set(key, h); else for (let i = 0; i < h.length; i++) hc[i] += h[i]; }
+      }
+    }
+    const channels = [];
+    for (const { ch, data, lo, hi, disp } of out.values()) {
+      data.forEach((a, k) => channels.push({
+        c: ch.c, comp: ch.comps > 1 ? ['B', 'G', 'R'][k] : null, comps: ch.comps, dtype: ch.dtype, data: a, pixelType: ch.ptName,
+        range: isFinite(lo[k]) ? [lo[k], hi[k]] : [0, 0], mip: mips.get(ch.c + ':' + k) || null, tex: disp ? { fxy, data: disp[k] } : null,
+        counts: hists.get(ch.c + ':' + k) || null,
+      }));
+    }
+    const order = (c) => (c === 'R' ? 0 : c === 'G' ? 1 : c === 'B' ? 2 : 0);
+    channels.sort((a, q) => (a.c - q.c) || (order(a.comp) - order(q.comp)));
+    return { width: W, height: H, depth: D, zValues: plan.zValues, bin: plan.bin, channels, origin: { x: plan.x0, y: plan.y0 } };
   }
 
   // ------------------------------------------------------------- loading
   async openFile(file) {
     if (!file) return;
     if (/\.traces$/i.test(file.name)) return this.importTraces(file);
+    this.decodePool();   // start the decoding workers now: they get ready while the header is read and the dialog is open
     const r = await this.task('Reading ' + file.name + '…', async () => {
       const info = await this.worker.call('czi.open', { file });
       return info;
@@ -146,8 +211,11 @@ class App {
     const meta = this.czi.parseMetadata(r.xml);
     const sel = await this.ui.loadDialog(r.summary, meta, file);
     if (!sel) { this.status('Loading cancelled.'); return; }
-    const res = await this.task('Decoding image data…', (p) => this.worker.call('czi.load', { sel }, [], p));
+    const res = await this.task('Decoding image data…', (p) => this.loadPlanes(file, sel, p));
     if (!res) return;
+    // big stacks take a moment to go to the GPU: say so before the window is busy with it
+    this.status('Preparing the views…');
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     const sc = meta.scaling;
     let sx = sc.x, sy = sc.y || sc.x, sz = sc.z;
     const noScale = !sx;
@@ -158,7 +226,7 @@ class App {
     const chans = res.channels.map((ch, k) => {
       const mc = meta.channels[ch.c] || meta.channels[k] || {};
       return {
-        data: ch.data, dtype: ch.dtype,
+        data: ch.data, dtype: ch.dtype, range: ch.range, mip: ch.mip, tex: ch.tex, counts: ch.counts,
         name: (mc.name || ('Channel ' + (ch.c + 1))) + (ch.comp ? ' ' + ch.comp : ''),
         color: ch.comp ? comps[ch.comp] : mc.color,
         source: { c: ch.c, comp: ch.comp, meta: mc },
@@ -200,7 +268,7 @@ class App {
     for (let i = v.channels.length - 1; i >= 0; i--) {
       const ch = v.channels[i];
       this.addLayer({
-        name: ch.name, kind: 'intensity', data: ch.data, dtype: ch.dtype, source: ch.source,
+        name: ch.name, kind: 'intensity', data: ch.data, dtype: ch.dtype, source: ch.source, range: ch.range, mip: ch.mip, texPlanes: ch.tex, counts: ch.counts,
         // opened channels show their full data range (Min–max); derived layers get the percentile auto-contrast
         disp: { color: ch.color || Colormaps.DEFAULT_COLORS[i % Colormaps.DEFAULT_COLORS.length], cmap: single && !ch.color ? 'gray' : 'custom', fit: 'minmax' },
         history: ['Loaded from ' + (v.fileName || v.name)], silent: true,
@@ -231,6 +299,18 @@ class App {
     const a = L.data, n = a.length, [lo, hi] = L.range;
     const NB = 1024, h = new Float64Array(NB);
     const span = hi - lo || 1, sc = NB / span;
+    if (L._counts && L._countsSrc === a) {
+      // exact counts per value from the loader (8/16-bit channels): no pass over the data
+      const c = L._counts;
+      let total = 0;
+      for (let r = Math.max(0, Math.ceil(lo)); r <= Math.min(c.length - 1, hi); r++) {
+        if (!c[r]) continue;
+        let b = ((r - lo) * sc) | 0;
+        if (b >= NB) b = NB - 1; else if (b < 0) b = 0;
+        h[b] += c[r]; total += c[r];
+      }
+      return { h, lo, hi, bw: span / NB, total };
+    }
     const step = Math.max(1, Math.floor(n / 8e6));
     for (let i = 0; i < n; i += step) {
       let b = ((a[i] - lo) * sc) | 0;
@@ -253,6 +333,7 @@ class App {
       range: o.range || this.proc.minmax(data), history: o.history || [], source: o.source || null, version: 0,
     };
     if (L.kind === 'mask') L.range = [0, 1];
+    if (o.counts) { L._counts = o.counts; L._countsSrc = data; }
     L.hist = this.computeHist(L);
     L.pct = (p) => this.layerPct(L, p);
     const given = o.disp || {};
@@ -273,7 +354,11 @@ class App {
       this.layers.forEach((q) => { if (q.kind === 'labels') q.disp.visible = false; });
     }
     this.layers.unshift(L);
+    // made while loading (App.loadPlanes): the max projection along Z, and the box-averaged planes for the 3D texture
+    if (o.mip && L.kind === 'intensity') { L._proj = o.mip; L._projSrc = data; L._projKey = '0|' + this.dims[2]; }
+    if (o.texPlanes) L.texPlanes = o.texPlanes;
     this.upload(L);
+    delete L.texPlanes;
     if (!o.silent) { this.selectedId = L.id; this.layersChanged(); }
     return L;
   }
@@ -341,9 +426,13 @@ class App {
   }
   resize3D() {
     if (!this.renderer) return;
-    const host = $('#v3d'), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // The volume is ray-marched at up to 1.5 pixels per CSS pixel: on Retina / 2× screens that is 44 % less GPU
+    // work than full density, and a soft volume image looks the same. Lines and text (overlay) stay at full density.
+    const host = $('#v3d'), dpr = Math.min(window.devicePixelRatio || 1, 2), dprGL = Math.min(dpr, 1.5);
     const w = Math.max(1, host.clientWidth), h = Math.max(1, host.clientHeight);
-    for (const c of [$('#gl'), $('#overlay')]) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+    const gl = $('#gl'), ov = $('#overlay');
+    gl.width = Math.round(w * dprGL); gl.height = Math.round(h * dprGL);
+    ov.width = Math.round(w * dpr); ov.height = Math.round(h * dpr);
     this.requestRender('3d');
   }
   show3D() { return this.view === '3d' || this.view === 'ortho'; }
@@ -530,7 +619,11 @@ class App {
     });
     window.addEventListener('beforeunload', (e) => { if (this.history.length > 1) { e.preventDefault(); e.returnValue = ''; } });
   }
-  cancelTask() { this.worker.cancel(); this.busy(false); this.status('Cancelled.'); }
+  cancelTask() {
+    this.worker.cancel();
+    if (this.pool) this.pool.forEach((w) => { if (w.busy) w.cancel(); });
+    this.busy(false); this.status('Cancelled.');
+  }
 
   // ------------------------------------------------------------- cursor / hover
   setCursor(v, fromClick) {

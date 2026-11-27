@@ -38,14 +38,16 @@ function sliceGeometry(app, axis, index) {
   return { w: D, h: H, base: index, du: P, dv: W }; // yz: horizontal = z, vertical = y
 }
 
-/* Maximum projection along Z of a layer over slices z0 … z1-1 (cached per data version and range). */
+/* Maximum projection along Z of a layer over slices z0 … z1-1. Cached per data array and range; for masks and
+   labels also per version, since their data can be edited in place. Opened channels come with one already
+   (made by the loader). Contrast changes no longer re-project intensity layers. */
 function projectedXY(app, L, z0 = 0, z1 = app.dims[2]) {
-  const key = L.version + '|' + L.data.length + '|' + z0 + '|' + z1;
-  if (L._proj && L._projKey === key) return L._proj;
+  const key = z0 + '|' + z1 + (L.kind === 'intensity' ? '' : '|' + L.version);
+  if (L._proj && L._projSrc === L.data && L._projKey === key) return L._proj;
   const [W, H] = app.dims, P = W * H, a = L.data, out = new a.constructor(P);
   out.set(a.subarray(z0 * P, (z0 + 1) * P));
   for (let z = z0 + 1; z < z1; z++) { const o = z * P; for (let i = 0; i < P; i++) if (a[o + i] > out[i]) out[i] = a[o + i]; }
-  L._proj = out; L._projKey = key;
+  L._proj = out; L._projSrc = L.data; L._projKey = key;
   return out;
 }
 

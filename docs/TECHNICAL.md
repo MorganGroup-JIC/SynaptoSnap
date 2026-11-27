@@ -351,3 +351,28 @@ Tested with two files written by SNT (hand traces of the two real nuclei below, 
   - **Number keys:** with a trace in progress, `3` changed nothing and showed the reminder. After **Done** (which then hid itself) `3` picked chromosome 3.
   - **Accuracy:** see the table above.
 - **Not yet tested:** opening the exported files in ZEN or Fiji. Please check one before relying on them.
+
+## Loading speed
+
+**How a file is loaded (2026-11-27).** After the header is read, the planes of the selected scene, time point, channels and Z range are decoded by a pool of background workers: one fewer than the processor cores, at most 8 (`App.loadPlanes`, `CZIReader.plan` / `decodePlane`). Each worker reads whole planes straight from the file, so reads and zstd decompression run in parallel. While it has a plane in hand, each worker also:
+
+- takes the plane's min and max (the layer's range, so no full min/max pass afterwards);
+- counts every value of 8/16-bit data (the layer histogram, exact, instead of sampling the volume afterwards);
+- keeps a running max projection along Z per channel (merged at the end; used by Slice's max projection and to pick the ZYP1 channel);
+- when the 3D texture has to be reduced to fit the GPU budget, makes a box-averaged copy of the plane for it.
+
+The result is identical to the single-worker loader: checked voxel for voxel on the 1804 and 1805 stacks at full resolution, binned 2×, and for a Z range with two channels. The ranges, histograms and projections were also identical. A reduced 3D texture differs from the old one by at most one half-float step (rounding of the box means).
+
+**GPU upload.** A layer's 3D texture is filled with one call up to 64 M voxels (slabs above that), instead of one call per slice. The uploaded values are bit-identical to before. A channel's ZYP1 score is computed from its max projection; images over 1.5 M pixels are max-pooled first.
+
+**Retina / 2× screens.** The volume is ray-marched at up to 1.5 pixels per CSS pixel (44% fewer pixels than 2×); the overlay with lines and text stays at full density.
+
+**Measured** (cold start in Microsoft Edge, headless, on a PC with Intel UHD 730 graphics and 12 cores):
+
+| File | Before | After | Longest freeze, before → after |
+|---|---|---|---|
+| 1804 processed crop (51 MB, 361×441×40×4) | 2.6 s | 0.7 s | 1.7 → 0.35 s |
+| 1805 processed (46 MB, 294×320×61×4) | 2.7 s | 0.7 s | 1.2 → 0.3 s |
+| 1805 SIM (3.2 GB uncompressed, 2560×2560×61×4, full resolution) | 64 s | 13 s | 56 → 3.7 s |
+
+For the 3 GB stack the old time went on reducing the 3D textures (29 s), projecting and scoring channels (19 s) and min/max (7 s), all on the main thread. Now about 8–10 s of the 13 s is reading and copying the 3.2 GB; this machine's browser reads a file at about 0.6 GB/s from one reader and 1 GB/s from eight. Not measured on a Mac.
