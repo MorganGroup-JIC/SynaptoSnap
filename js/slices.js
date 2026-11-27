@@ -38,22 +38,35 @@ function sliceGeometry(app, axis, index) {
   return { w: D, h: H, base: index, du: P, dv: W }; // yz: horizontal = z, vertical = y
 }
 
-/* Maximum projection along Z of a layer (cached per data version). */
-function projectedXY(app, L) {
-  const key = L.version + '|' + L.data.length;
+/* Maximum projection along Z of a layer over slices z0 … z1-1 (cached per data version and range). */
+function projectedXY(app, L, z0 = 0, z1 = app.dims[2]) {
+  const key = L.version + '|' + L.data.length + '|' + z0 + '|' + z1;
   if (L._proj && L._projKey === key) return L._proj;
-  const [W, H, D] = app.dims, P = W * H, a = L.data, out = new a.constructor(P);
-  out.set(a.subarray(0, P));
-  for (let z = 1; z < D; z++) { const o = z * P; for (let i = 0; i < P; i++) if (a[o + i] > out[i]) out[i] = a[o + i]; }
+  const [W, H] = app.dims, P = W * H, a = L.data, out = new a.constructor(P);
+  out.set(a.subarray(z0 * P, (z0 + 1) * P));
+  for (let z = z0 + 1; z < z1; z++) { const o = z * P; for (let i = 0; i < P; i++) if (a[o + i] > out[i]) out[i] = a[o + i]; }
   L._proj = out; L._projKey = key;
   return out;
+}
+
+/* The clipping box in a view's pixel coordinates, or null when it covers the whole image. u/v are the view's
+   horizontal/vertical pixels; out: the slice shown lies outside the box (never for the max projection);
+   z0/z1: the box's Z range (what the max projection covers). Slices hide everything outside it, as 3D does. */
+function sliceClip(app, axis, index, proj) {
+  const r = app.roiBox();
+  if (r.full) return null;
+  const X = [r.x0, r.x0 + r.w], Y = [r.y0, r.y0 + r.h], Z = [r.z0, r.z0 + r.d];
+  const [U, V, N] = axis === 'xy' ? [X, Y, Z] : axis === 'xz' ? [X, Z, Y] : [Z, Y, X];
+  return { u0: U[0], u1: U[1], v0: V[0], v1: V[1], out: r.w < 1 || r.h < 1 || r.d < 1 || (!proj && (index < N[0] || index >= N[1])), z0: Z[0], z1: Z[1] };
 }
 
 function compositeSlice(app, axis, index, preview) {
   const g0 = sliceGeometry(app, axis, index);
   const proj = isProjected(app, axis);
+  const clip = sliceClip(app, axis, index, proj);
+  if (clip && clip.out) return new ImageData(g0.w, g0.h);   // the slice is outside the clipping box: transparent
   const g = proj ? Object.assign({}, g0, { base: 0 }) : g0;
-  const src = (L) => (proj ? projectedXY(app, L) : L.data);
+  const src = (L) => (proj ? (clip ? projectedXY(app, L, clip.z0, clip.z1) : projectedXY(app, L)) : L.data);
   const { w, h, base, du, dv } = g, n = w * h;
   const acc = new Uint16Array(n * 3);
   const layers = app.layers.slice().reverse().filter((L) => L.disp.visible);
@@ -142,6 +155,13 @@ function compositeSlice(app, axis, index, preview) {
       }
     }
   }
+  // outside the clipping box: transparent, so the view's background shows
+  if (clip) {
+    for (let v = 0; v < h; v++) {
+      const inV = v >= clip.v0 && v < clip.v1;
+      for (let u = 0; u < w; u++) if (!inV || u < clip.u0 || u >= clip.u1) out[(v * w + u) * 4 + 3] = 0;
+    }
+  }
   return img;
 }
 
@@ -215,7 +235,7 @@ class SliceView {
     const idx = this.index;
     const pv = app.previewState();
     const proj = isProjected(app, this.axis);
-    const key = this.axis + '|' + (proj ? 'mip' : idx) + '|' + app.displayVersion + '|' + (pv ? pv.key : '') + '|' + app.selectedLabel;
+    const key = this.axis + '|' + (proj ? 'mip' : idx) + '|' + app.displayVersion + '|' + (pv ? pv.key : '') + '|' + app.selectedLabel + '|' + app.rs.box.join(',');
     if (key !== this.offKey) {
       const img = compositeSlice(app, this.axis, idx, pv);
       this.off.width = img.width; this.off.height = img.height;
@@ -246,6 +266,7 @@ class SliceView {
       const ai = this.axis === 'xy' ? 'z' : this.axis === 'xz' ? 'y' : 'x';
       const sp = this.axis === 'xy' ? sz : this.axis === 'xz' ? sy : sx;
       for (const q of pts.list) {
+        if (!app.inClipBox([q.x * sx, q.y * sy, q.z * sz])) continue;
         const d = Math.abs(q[ai] - idx) * sp;
         if (d > r && !proj) continue;
         const rr = (proj ? r : Math.sqrt(r * r - d * d)) * this.zoom;
@@ -278,7 +299,10 @@ class SliceView {
     const name = this.axis.toUpperCase();
     const coord = this.axis === 'xy' ? 'z' : this.axis === 'xz' ? 'y' : 'x';
     const sp = this.axis === 'xy' ? app.spacing[2] : this.axis === 'xz' ? app.spacing[1] : app.spacing[0];
-    this.badge.textContent = proj ? `${name}  ·  max projection over ${this.count} slices` : `${name}  ·  ${coord} = ${idx + 1}/${this.count}  (${(idx * sp).toFixed(2)} µm)`;
+    const clip = sliceClip(app, this.axis, idx, proj);
+    this.badge.textContent = proj
+      ? (clip ? `${name}  ·  max projection over slices ${clip.z0 + 1}–${clip.z1} (clipping box)` : `${name}  ·  max projection over ${this.count} slices`)
+      : `${name}  ·  ${coord} = ${idx + 1}/${this.count}  (${(idx * sp).toFixed(2)} µm)` + (clip && clip.out ? '  ·  outside the clipping box' : '');
   }
 
   _events() {

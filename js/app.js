@@ -630,6 +630,14 @@ class App {
     return r.w < 1 || r.h < 1 || r.d < 1 ? false : r.full ? null : r;
   }
   roiText(r) { return `x ${r.x0}–${r.x0 + r.w - 1}, y ${r.y0}–${r.y0 + r.h - 1}, z ${r.z0}–${r.z0 + r.d - 1}`; }
+  /** Is a position (µm) inside the clipping box? The same test as the 3D view's overlay; slices hide what is not. */
+  inClipBox(p) {
+    const b = this.rs.box;
+    if (b[0] <= 0 && b[1] <= 0 && b[2] <= 0 && b[3] >= 1 && b[4] >= 1 && b[5] >= 1) return true;
+    const [W, H, D] = this.dims, [sx, sy, sz] = this.spacing;
+    const x = (p[0] / sx + 0.5) / W, y = (p[1] / sy + 0.5) / H, z = (p[2] / sz + 0.5) / D;
+    return x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5];
+  }
   roiCrop(a, r) {
     const out = new a.constructor(r.w * r.h * r.d);
     for (let z = 0; z < r.d; z++) for (let y = 0; y < r.h; y++) {

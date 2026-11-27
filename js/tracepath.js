@@ -70,10 +70,11 @@
    * The path search then picks the one that continues the track, instead of the brightest layer (which is
    * another, stacked track about one click in five).
    */
-  function depthCandidates(C, p, r = 3, frac = 0.25, max = 6) {
+  function depthCandidates(C, p, r = 3, frac = 0.25, max = 6, z0 = 0, z1 = C.D) {
     const { W, H, D, P } = C, px = Math.round(p[0]), py = Math.round(p[1]);
-    const prof = new Float64Array(D), at = [];
+    const prof = new Float64Array(D).fill(-Infinity), at = [];   // only slices z0 … z1-1 (the clipping box) count
     for (let z = 0; z < D; z++) {
+      if (z < z0 || z >= z1) { at.push([px, py, z]); continue; }
       let bv = -Infinity, bx = px, by = py;
       for (let y = Math.max(0, py - r); y <= Math.min(H - 1, py + r); y++) {
         for (let x = Math.max(0, px - r); x <= Math.min(W - 1, px + r); x++) {

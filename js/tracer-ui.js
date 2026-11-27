@@ -844,7 +844,10 @@
       const v = at.view, ax = v.axis, i = v.index, a = at.u - 0.5, b = at.v - 0.5, [W, H, D] = this.dims;
       const p = ax === 'xy' ? [a, b, i] : ax === 'xz' ? [a, i, b] : [i, b, a];
       if (p[0] < -0.5 || p[1] < -0.5 || p[2] < -0.5 || p[0] > W - 0.5 || p[1] > H - 0.5 || p[2] > D - 0.5) return null;
-      if (isProjected(this, ax)) { const c = TracePath.depthCandidates(C, p); if (c.length) return c; }
+      if (isProjected(this, ax)) {
+        const r = this.roiBox(), c = r.full ? TracePath.depthCandidates(C, p) : TracePath.depthCandidates(C, p, 3, 0.25, 6, r.z0, r.z0 + r.d); // the projection's Z range
+        if (c.length) return c;
+      }
       const slice = ax === 'xy' ? 2 : ax === 'xz' ? 1 : 0, r = [3, 3, 2];
       r[slice] = slice === 2 ? 2 : 6;
       return [TracePath.snap(C, p, r)];
@@ -1828,11 +1831,12 @@
     };
     const segs = [];
     for (const l of app.traceLines()) {
-      let a = map(l.pts[0]), aa = alphaOf(a);
+      // parts outside the clipping box are not drawn (as in 3D)
+      let a = map(l.pts[0]), aa = alphaOf(a), ain = app.inClipBox(l.pts[0]);
       for (let i = 1; i < l.pts.length; i++) {
-        const b = map(l.pts[i]), ab = alphaOf(b);
-        segs.push({ a, b, alpha: (aa + ab) / 2, l });
-        a = b; aa = ab;
+        const b = map(l.pts[i]), ab = alphaOf(b), bin = app.inClipBox(l.pts[i]);
+        if (ain && bin) segs.push({ a, b, alpha: (aa + ab) / 2, l });
+        a = b; aa = ab; ain = bin;
       }
     }
     segs.sort((p, q) => p.alpha - q.alpha); // faded parts underneath, in-plane parts on top
@@ -1847,6 +1851,7 @@
     }
     ctx.setLineDash([]);
     for (const e of app.traceEnds()) {
+      if (!app.inClipBox(e.p)) continue;
       const a = map(e.p), [x, y] = view.toScreen(a[0] + 0.5, a[1] + 0.5), al = alphaOf(a);
       if (e.label) { drawNumberBadge(ctx, x, y, e.color, e.label, Math.max(0.6, al)); continue; }
       ctx.globalAlpha = e.small ? 0.8 * al : al;
@@ -1906,6 +1911,7 @@
     return (p) => {
       const m = ax === 'xy' ? [p[0] / sx, p[1] / sy, p[2] / sz] : ax === 'xz' ? [p[0] / sx, p[2] / sz, p[1] / sy] : [p[2] / sz, p[1] / sy, p[0] / sx];
       if (!proj && Math.abs(m[2] - idx) * spD > reach) return null;
+      if (!app.inClipBox(p)) return null;   // hidden outside the clipping box, so not clickable
       return view.toScreen(m[0] + 0.5, m[1] + 0.5);
     };
   };
