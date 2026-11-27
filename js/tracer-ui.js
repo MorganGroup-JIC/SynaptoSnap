@@ -1673,6 +1673,7 @@
     },
     traceChanged() {
       const t = this.trace;
+      t.edits = (t.edits || 0) + 1;   // for "unsaved changes" (App.traceUnsaved)
       this.traceSummary();
       const L = t.labelsLayer, M = t.maskLayer;
       if (L && M && this.layers.includes(L) && M.data && M.data.length === L.data.length) {
@@ -1942,12 +1943,8 @@
           title: 'Go straight into Edit mode without waiting for the automatic trace: draw chromosomes with Guide on the chosen input image. You can run the automatic trace at the same time or later; your hand-drawn segments are kept and its pieces are added unassigned.',
           onclick: () => app.traceStartManual(),
         }, '✎ Edit by hand now'), h('button', {
-          title: 'Load paths traced in Fiji SNT (or exported from here) on this image — e.g. a ground truth. Paths named "Chr 1", "Chr 2"… become those chromosomes.',
-          onclick: () => {
-            const inp = h('input', { type: 'file', accept: '.traces,.xml' });
-            inp.addEventListener('change', () => { if (inp.files[0]) app.importTraces(inp.files[0]); });
-            inp.click();
-          },
+          title: 'Load paths traced in Fiji SNT (or saved from here) on this image — e.g. a ground truth. Paths named "Chr 1", "Chr 2"… become those chromosomes. In Chrome and Edge, Save then writes your changes back to this file.',
+          onclick: () => SNTTraces.pickTraces(app),
         }, 'Import .traces (SNT)…')),
         this.traceRes);
     },
@@ -2113,16 +2110,20 @@
           h('button', { disabled: !(t.active > 0) || null, onclick: () => { if (t.active > 0) app.traceClear(t.active); }, title: 'Unassign every segment of the active chromosome (the segments stay, muted)' }, 'Clear chromosome ' + (t.active > 0 ? t.active : '')),
           h('button', { onclick: () => { if (confirm('Unassign all segments from all chromosomes?')) app.traceClear(null); } }, 'Unassign all')),
         sliderRow({ label: 'Solid within ± µm', min: 0.05, max: 1.5, log: true, step: 0.01, value: traceDepth(app), hint: 'On slice views (Slice without max projection, and Ortho), trace parts within this distance of the plane are drawn solid; parts further away fade out.', onInput: (v) => { app.traceDepth = v; app.requestRender('2d'); } }).el,
+        h('label', { class: 'sub' }, 'Save traces (SNT .traces file, opens in Fiji)'),
+        this.traceFileInfo = h('div', { class: 'small trace-file' }),
         h('div', { class: 'btns' },
-          h('button', { onclick: () => this.exportTraceLengths() }, 'Lengths CSV'),
-          h('button', { onclick: () => this.exportTraceCoords() }, 'Trace coordinates CSV')),
+          this.traceSaveBtn = h('button', { onclick: () => app.saveTraces() }, 'Save'),
+          h('button', { onclick: () => app.saveTracesAs({ unassigned: !!this.sntUnassigned }), title: 'Save the traces as a new SNT (Fiji) .traces file: choose its name and folder. One path per chromosome, named "Chromosome N". Save then keeps writing to that file.' }, 'Save as…')),
+        check('Save as… includes unassigned pieces', !!this.sntUnassigned, (v) => { this.sntUnassigned = v; }, 'Also save the pieces not assigned to a chromosome, as paths named "Unassigned piece N". (Save to the file the trace came from always includes them, so nothing is dropped from it.)'),
         h('div', { class: 'btns' },
-          h('button', { onclick: () => app.exportTraces({ unassigned: !!this.sntUnassigned }), title: 'Save the traces as an SNT (Fiji) .traces file: one path per chromosome, named "Chromosome N"' }, 'Export .traces (SNT)')),
-        check('Include unassigned pieces in .traces', !!this.sntUnassigned, (v) => { this.sntUnassigned = v; }, 'Also save the pieces not assigned to a chromosome, as paths named "Unassigned piece N"'),
+          h('button', { onclick: () => this.exportTraceLengths(), title: 'Chromosome lengths as a CSV table (asks for a name and folder)' }, 'Lengths CSV…'),
+          h('button', { onclick: () => this.exportTraceCoords(), title: 'Every trace point (µm) as a CSV table (asks for a name and folder)' }, 'Trace coordinates CSV…')),
         h('p', { class: 'muted small' }, `Tip: Trace follows the image between clicks; where chromosomes are crowded, click every 2–3 µm and at sharp turns (clicks further apart may cut across to a neighbouring track: Ctrl+Z and click a point in between). On a single slice a click snaps to the track within ±0.2 µm of the slice; on the max projection it takes the brightest depth. Edit mode from 3D shows an XY max projection; switch to Ortho or 3D to check crossings in depth. Unassign (0) takes segments off their chromosome but keeps them in the trace (muted); Erase removes them from the trace altogether.` +
           (t.mode === 'imported' || t.mode === 'manual' ? '' : ` Settings used: max bend ${Math.round(t.params.maxBend * 180 / Math.PI)}°, max gap ${fmtNum(t.params.maxGap)} µm, pieces under ${fmtNum(t.params.minLen)} µm ignored` +
             (t.deconv && t.deconv.sigma ? `; sharpened along Z first (axial σ ${fmtNum(t.deconv.sigma)} µm, ${t.deconv.how}).` : t.deconv && t.deconv.skipped ? `; Z sharpening skipped (${t.deconv.skipped}).` : '; no Z sharpening.'))));
       this.refreshTraceSelection();
+      this.refreshTraceFile();
     },
     /** Segment ids of the chromosome that [ and ] step along (the row whose dropdown was used), in list order. */
     segListOrder() {
@@ -2225,20 +2226,45 @@
       this.refreshTrace();
       app.requestRender();
     },
+    /** Save as… for a CSV table (the browser's save dialog where there is one; else a name, then a download). */
+    async saveCSV(text, name) {
+      try {
+        const res = await saveFileAs(() => new Blob([text], { type: 'text/csv' }), name, { description: 'CSV table', mime: 'text/csv', ext: ['.csv'] });
+        if (res) this.app.status('Saved ' + res.name + (res.handle ? '' : ' (in your downloads)'));
+      } catch (e) { this.app.error('Could not save ' + name + ': ' + e.message); }
+    },
+    /** The line under "Save traces": which file the trace is saved to, and whether there are unsaved changes. */
+    refreshTraceFile() {
+      const el = this.traceFileInfo, t = this.app.trace;
+      if (!el || !t) return;
+      const f = t.file, unsaved = this.app.traceUnsaved(), dot = unsaved ? '● unsaved changes' : 'no unsaved changes';
+      el.innerHTML = '';
+      el.classList.toggle('unsaved', unsaved);
+      if (f && f.handle) el.append('File: ', h('b', null, f.name), ' · ' + dot);
+      else if (f && f.downloaded) el.append('Last saved as ', h('b', null, f.name), ' (downloaded) · ' + dot);
+      else if (f) el.append('Opened from ', h('b', null, f.name), ` · ${dot}. This browser cannot write to that file: Save makes a new one.`);
+      else el.append(unsaved ? '● Not saved to a file yet' : 'Not saved to a file yet');
+      if (this.traceSaveBtn) {
+        this.traceSaveBtn.textContent = f && f.handle ? 'Save' : 'Save…';
+        this.traceSaveBtn.title = f && f.handle
+          ? `Write the traces back to ${f.name}, unassigned pieces included${f.fromImport && !f.confirmed ? ' (asks first)' : ''}`
+          : 'Save the traces to a new file (the trace was not opened from a file this browser can write to)';
+      }
+    },
     exportTraceLengths() {
       const app = this.app, t = app.trace;
       if (!t) return;
       const rows = app.traceSummary().rows.filter((r) => r.nSeg);
       const cols = [['id', 'chromosome'], ['length', 'length_um'], [(r) => r.rel * 100, 'percent_of_total'], ['nSeg', 'segments'], ['nGap', 'gaps_bridged'], ['gapLen', 'gap_length_um'], ['nEnds', 'ends'], ['status', 'status'], ['meanI', 'mean_intensity'],
         [(r) => (r.ends[0] != null && t.nodes[r.ends[0]] ? t.nodes[r.ends[0]].map((v) => v.toFixed(3)).join(' ') : ''), 'end1_xyz_um'], [(r) => (r.ends[1] != null && t.nodes[r.ends[1]] ? t.nodes[r.ends[1]].map((v) => v.toFixed(3)).join(' ') : ''), 'end2_xyz_um']];
-      download(new Blob([toCSV(rows, cols)], { type: 'text/csv' }), (app.vol ? app.vol.name : 'volume') + '_chromosome_lengths.csv');
+      this.saveCSV(toCSV(rows, cols), (app.vol ? app.vol.name : 'volume') + '_chromosome_lengths.csv');
     },
     exportTraceCoords() {
       const app = this.app, t = app.trace;
       if (!t) return;
       const rows = [];
       t.edges.forEach((e, i) => e.pts.forEach((p, j) => rows.push({ k: t.edgeChrom[i], k2: t.edgeChrom2[i], seg: i + 1, j, x: p[0], y: p[1], z: p[2] })));
-      download(new Blob([toCSV(rows, [['k', 'chromosome'], ['k2', 'shared_with'], ['seg', 'segment'], ['j', 'point'], ['x', 'x_um'], ['y', 'y_um'], ['z', 'z_um']])], { type: 'text/csv' }), (app.vol ? app.vol.name : 'volume') + '_traces.csv');
+      this.saveCSV(toCSV(rows, [['k', 'chromosome'], ['k2', 'shared_with'], ['seg', 'segment'], ['j', 'point'], ['x', 'x_um'], ['y', 'y_um'], ['z', 'z_um']]), (app.vol ? app.vol.name : 'volume') + '_traces.csv');
     },
   });
 })();

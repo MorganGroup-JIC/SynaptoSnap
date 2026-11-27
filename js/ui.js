@@ -58,6 +58,29 @@ function download(blob, name) {
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
 }
+/** Write a file the user picked (File System Access API); on failure the old content is left as it was. */
+async function writeToHandle(handle, blob) {
+  const ws = await handle.createWritable();
+  try { await ws.write(blob); await ws.close(); } catch (e) { try { await ws.abort(); } catch (_) { /* already closed */ } throw e; }
+}
+/**
+ * "Save as": the browser's own save dialog where there is one (Chrome, Edge: any name, any folder). Elsewhere
+ * (Safari, Firefox) the file is downloaded under a name asked for first. makeBlob() is called after the dialog,
+ * so the dialog still opens on the click. type = { description, mime, ext: ['.traces'] }.
+ * Returns { handle, name } (handle null when downloaded), or null when cancelled.
+ */
+async function saveFileAs(makeBlob, suggestedName, type) {
+  if (window.showSaveFilePicker) {
+    let handle = null;
+    try { handle = await window.showSaveFilePicker({ suggestedName, types: type ? [{ description: type.description, accept: { [type.mime]: type.ext } }] : undefined }); }
+    catch (e) { if (e.name === 'AbortError') return null; handle = null; }   // blocked (e.g. in a frame): fall back to a download
+    if (handle) { await writeToHandle(handle, await makeBlob()); return { handle, name: handle.name }; }
+  }
+  const name = await window.app.ui.askFileName(suggestedName, type && type.ext && type.ext[0]);
+  if (!name) return null;
+  download(await makeBlob(), name);
+  return { handle: null, name };
+}
 function toCSV(rows, cols) {
   const esc = (v) => (v == null ? '' : typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toPrecision(7)) : /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v));
   return cols.map((c) => c[1]).join(',') + '\n' + rows.map((r) => cols.map((c) => esc(typeof c[0] === 'function' ? c[0](r) : r[c[0]])).join(',')).join('\n') + '\n';
@@ -410,7 +433,7 @@ class UI {
 
   _topbar() {
     const app = this.app;
-    $('#btnOpen').addEventListener('click', () => $('#fileInput').click());
+    $('#btnOpen').addEventListener('click', () => app.pickFile());
     $('#fileInput').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) app.openFile(f); });
     $('#btnDemo').addEventListener('click', () => this.modal('Demo volumes', h('div', null,
       h('p', { class: 'muted' }, 'Synthetic stacks with known ground truth for trying the tools.'),
@@ -984,6 +1007,36 @@ class UI {
     return box;
   }
   closeModal() { const m = $('#modal'); m.classList.add('hidden'); m.innerHTML = ''; if (this._modalResolve) { const r = this._modalResolve; this._modalResolve = null; r(null); } }
+  /** A yes/no question in the app's own dialog. Resolves true on OK, on that click (so the caller can still ask
+   *  the browser for things that need a click, such as permission to write a file). */
+  confirmDialog(title, text, okLabel = 'OK') {
+    return new Promise((resolve) => {
+      if (!$('#modal').classList.contains('hidden')) this.closeModal();
+      this._modalResolve = () => resolve(false);
+      this.modal(title, h('div', null, ...String(text).split('\n\n').map((p) => h('p', null, p))),
+        [h('button', { onclick: () => this.closeModal() }, 'Cancel'), h('button', { class: 'primary', onclick: () => { this._modalResolve = null; this.closeModal(); resolve(true); } }, okLabel)]);
+    });
+  }
+  /** Save as, in browsers without a save dialog of their own: ask for a file name (the file is then downloaded). */
+  askFileName(name, ext) {
+    return new Promise((resolve) => {
+      if (!$('#modal').classList.contains('hidden')) this.closeModal();
+      const inp = h('input', { type: 'text', value: name, spellcheck: false, style: 'width:100%;box-sizing:border-box' });
+      const ok = () => {
+        let v = inp.value.trim().replace(/[\\/:*?"<>|]/g, '_');
+        if (!v) return inp.focus();
+        if (ext && !v.toLowerCase().endsWith(ext.toLowerCase())) v += ext;
+        this._modalResolve = null; this.closeModal(); resolve(v);
+      };
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok(); } if (e.key !== 'Escape') e.stopPropagation(); });
+      this._modalResolve = resolve;   // Cancel, Esc or closing the dialog: null
+      this.modal('Save as', h('div', null,
+        h('p', null, 'File name:'), inp,
+        h('p', { class: 'muted small' }, 'This browser cannot choose a folder from a web page, so the file goes where your downloads go. (Chrome and Edge show their own Save as dialog instead.)')),
+      [h('button', { onclick: () => this.closeModal() }, 'Cancel'), h('button', { class: 'primary', onclick: ok }, 'Save')]);
+      setTimeout(() => { inp.focus(); inp.select(); }, 0);
+    });
+  }
   toggleHelp() {
     if (!$('#modal').classList.contains('hidden')) return this.closeModal();
     const k = (a, b) => h('tr', null, h('td', null, h('kbd', null, a)), h('td', null, b));

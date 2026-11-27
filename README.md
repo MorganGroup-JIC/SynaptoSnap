@@ -137,11 +137,18 @@ Pick the chromosome you are working on with the number buttons or keys `1`–`9`
 
 ### Saving traces
 
-- **CSV:** chromosome lengths and full trace coordinates (µm).
+Traces are saved as SNT `.traces` files, which open in Fiji: start SNT on the same `.czi` and use *File › Load Tracings*. Each chromosome is one path, named `Chromosome N`.
+
+- **Save as…** creates a new file. In Chrome and Edge you choose its name and folder; afterwards **Save** keeps writing to that file. Tick *Save as… includes unassigned pieces* to save the pieces without a chromosome too.
+- **Save** writes your changes back into the file the trace came from. This works for a `.traces` file you opened in Chrome or Edge, with **Open**, **Import .traces (SNT)…**, or by dropping it on the window. Save always includes the unassigned pieces, so nothing still in the trace is dropped from the file.
+  - The first time, it asks before replacing the original file: SynaptoSnap writes the file in its own way, so anything else SNT kept in it (its own path names, tags, fitted paths) is lost. Use Save as… instead to keep the original as it is.
+  - Edge or Chrome may also ask once for permission to change the file.
+- The line above the buttons names the file the trace is saved to and shows **● unsaved changes** when there are edits since the last save. Closing the window with unsaved changes asks first.
+- **Safari and Firefox** don't let web pages write to files. There, Save and Save as… ask for a file name, and the file goes to your downloads.
+- **CSV:** **Lengths CSV…** and **Trace coordinates CSV…** (µm) also ask where to save, in the same way.
 - **Labels:** the *Chromosomes* labels layer can be exported as a channel of a new `.czi` (Export tab).
-- **SNT (Fiji):** **Export .traces (SNT)** writes one path per chromosome, named `Chromosome N`. In Fiji, open the same `.czi`, start SNT and use *File › Load Tracings*. Tick *Include unassigned pieces* to save the rest too.
-- **Import .traces (SNT)…** (or drop the file on the window) loads traces made in SNT, for example a ground truth. Path names such as `Chr 2`, `Chromosome 2` or `SC2` set the chromosome number. The file must come from the same image (same crop); a warning says if the sizes differ.
-- `.traces` files exported before 2026-11-25 don't open in SNT 5: re-export them.
+- **Opening SNT traces:** path names such as `Chr 2`, `Chromosome 2` or `SC2` set the chromosome number. The file must come from the same image (same crop); a warning says if the sizes differ.
+- `.traces` files exported before 2026-11-25 don't open in SNT 5. Open them here and save them again.
 
 ## Exporting a new .czi (Export tab)
 

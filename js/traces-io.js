@@ -18,13 +18,28 @@
   const polyLen = (p) => { let s = 0; for (let i = 1; i < p.length; i++) s += dist(p[i], p[i - 1]); return s; };
 
   // ---------------------------------------------------------------- reading
-  async function readText(file) {
+  async function readText(file) { return (await readTextInfo(file)).text; }
+  /** The XML of a .traces file, and whether the file was gzip-compressed (saving back keeps it that way). */
+  async function readTextInfo(file) {
     const buf = new Uint8Array(await file.arrayBuffer());
     if (buf[0] === 0x1f && buf[1] === 0x8b) {
       const s = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
-      return await new Response(s).text();
+      return { text: await new Response(s).text(), gzip: true };
     }
-    return new TextDecoder().decode(buf);
+    return { text: new TextDecoder().decode(buf), gzip: false };
+  }
+  /** Import button: the browser's file dialog with a handle on the file where there is one (Chrome / Edge). */
+  async function pickTraces(app) {
+    if (window.showOpenFilePicker) {
+      try {
+        const [handle] = await window.showOpenFilePicker({ types: [{ description: 'SNT traces (Fiji)', accept: { 'application/octet-stream': ['.traces', '.xml'] } }] });
+        return app.importTraces(await handle.getFile(), handle);
+      } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.traces,.xml';
+    inp.addEventListener('change', () => { if (inp.files[0]) app.importTraces(inp.files[0]); });
+    inp.click();
   }
 
   /** µm per file unit; null = uncalibrated (pixels). */
@@ -354,16 +369,21 @@
     return await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
   }
 
-  window.SNTTraces = { readText, parse, toTrace, write, trails, gzip, nameChrom };
+  window.SNTTraces = { readText, readTextInfo, pickTraces, parse, toTrace, write, trails, gzip, nameChrom };
 
   // ---------------------------------------------------------------- App integration
   Object.assign(App.prototype, {
-    async importTraces(file) {
+    /**
+     * Load an SNT .traces file as the trace. handle: a FileSystemFileHandle on it (Chrome / Edge, from the Open
+     * dialog, the import button or a drop): then Save writes the edited trace back to that file.
+     */
+    async importTraces(file, handle = null) {
       if (!this.dims) return this.toast('Open the image the traces were made on first, then import the .traces file.', 'warn');
       const t0 = this.trace;
-      if (t0 && t0.undo && t0.undo.length && !confirm('Replace the current trace, including your edits, with the imported one?')) return;
-      let R;
-      try { R = toTrace(parse(await readText(file)), this); } catch (e) { return this.error('Could not read ' + file.name + ': ' + e.message); }
+      if (t0 && this.traceUnsaved() && !confirm('The current trace has changes that are not saved to a file. Replace it with the imported one anyway?')) return;
+      if (t0 && !this.traceUnsaved() && t0.undo && t0.undo.length && !confirm('Replace the current trace, including your edits, with the imported one?')) return;
+      let R, info;
+      try { info = await readTextInfo(file); R = toTrace(parse(info.text), this); } catch (e) { return this.error('Could not read ' + file.name + ': ' + e.message); }
       if (!R.edges.length) return this.error(file.name + ' has no paths with at least two points.');
       const base = file.name.replace(/\.traces$/i, '');
       const ctx = this.proc.makeCtx(this.dims, this.spacing);
@@ -377,6 +397,8 @@
         params: { width: w, maxGap: 0, maxBend: Math.PI / 3, minLen: 0, zPenalty: 1, zRef: Math.max(0.2, 3 * this.spacing[2]) },
         labelsLayer: labels, maskLayer: mask, visible: true, sel: null, undo: [], shared: false, clickMode: 'trace', active: 1, anchor: null,
         version: this.tracer.VERSION, source: file.name, nPaths: R.nPaths, named: R.named,
+        // the file this trace is saved to (handle: null where the browser cannot write files), and the edit count at the last save
+        file: { handle, name: file.name, gzip: info.gzip, fromImport: true }, edits: 0, savedEdits: 0,
       };
       this.selectedLabel = 0;
       this.traceSummary();
@@ -387,12 +409,62 @@
       this.status(`Imported ${R.nPaths} path${R.nPaths === 1 ? '' : 's'} from ${file.name}`);
       this.toast(`Imported ${R.nPaths} SNT path${R.nPaths === 1 ? '' : 's'} as ${R.n} chromosome${R.n === 1 ? '' : 's'}`);
     },
-    async exportTraces(o = {}) {
-      if (!this.trace) return this.toast('Trace or import chromosomes first');
-      const r = write(this, o);
-      if (!r.nPaths) return this.toast(o.unassigned ? 'There are no traces to export' : 'No chromosomes are assigned yet — assign some, or include unassigned pieces');
-      download(await gzip(r.xml), (this.vol ? this.vol.name : 'volume') + '.traces');
-      this.status(`Exported ${r.nPaths} SNT path${r.nPaths === 1 ? '' : 's'}`);
+    /** True when the trace has edits made since it was made, opened from a file or last saved. */
+    traceUnsaved() {
+      const t = this.trace;
+      return !!t && (t.edits || 0) > (t.savedEdits || 0);
     },
+    /**
+     * Save: write the trace back to its file, i.e. the .traces file it was opened from or last saved to with
+     * Save as… (Chrome / Edge). Everything is written, unassigned pieces included, so nothing in the file is lost
+     * that is still in the trace. Without such a file (other browsers, or a trace made here) this is Save as….
+     */
+    async saveTraces() {
+      const t = this.trace;
+      if (!t) return this.toast('Trace or import chromosomes first');
+      const f = t.file;
+      if (!f || !f.handle) return this.saveTracesAs({ unassigned: true });
+      if (f.fromImport && !f.confirmed && !(await this.ui.confirmDialog('Replace ' + f.name + '?',
+        `Save writes the traces as they are now in SynaptoSnap into ${f.name}: one path per chromosome ("Chromosome N") and the unassigned pieces ("Unassigned piece N").\n\nOther things SNT may have stored in that file (its own path names, tags, fitted paths) are not kept. To keep the original as it is, cancel and use Save as… instead.`, 'Replace'))) return;
+      try {
+        // asked on the click (the browser shows "Save changes to …?" once per file)
+        if ((await f.handle.queryPermission({ mode: 'readwrite' })) !== 'granted' && (await f.handle.requestPermission({ mode: 'readwrite' })) !== 'granted') {
+          return this.toast(`No permission to change ${f.name}. Use Save as… to save it under another name.`, 'warn');
+        }
+        f.confirmed = true;
+        const r = write(this, { unassigned: true });
+        if (!r.nPaths) return this.toast('There are no traces to save');
+        const edits = t.edits || 0;
+        await writeToHandle(f.handle, f.gzip ? await gzip(r.xml) : new Blob([r.xml], { type: 'application/xml' }));
+        t.savedEdits = edits;
+        this.ui.refreshTraceFile();
+        this.status(`Saved ${r.nPaths} SNT path${r.nPaths === 1 ? '' : 's'} to ${f.name}`);
+      } catch (e) { this.error(`Could not save ${f.name}: ${e.message}`); }
+    },
+    /**
+     * Save as…: a new .traces file, with the name and folder chosen in the browser's save dialog (Chrome / Edge);
+     * the trace is then saved to that file by Save. Other browsers ask for a name and download the file.
+     * o.unassigned: also save the pieces not assigned to a chromosome.
+     */
+    async saveTracesAs(o = {}) {
+      const t = this.trace;
+      if (!t) return this.toast('Trace or import chromosomes first');
+      const r = write(this, o);
+      if (!r.nPaths) return this.toast(o.unassigned ? 'There are no traces to save' : 'No chromosomes are assigned yet — assign some, or tick "Include unassigned pieces"');
+      const base = t.file ? t.file.name.replace(/\.traces$/i, '') : (this.vol ? this.vol.name : 'volume');
+      const edits = t.edits || 0;
+      let res;
+      try {
+        res = await saveFileAs(() => gzip(r.xml), base + (t.file && t.file.fromImport ? '_edited' : '') + '.traces',
+          { description: 'SNT traces (Fiji)', mime: 'application/octet-stream', ext: ['.traces'] });
+      } catch (e) { return this.error('Could not save the traces: ' + e.message); }
+      if (!res) return;
+      // the trace now belongs to the new file; a download only counts as saved when there is no file to write to
+      if (res.handle) { t.file = { handle: res.handle, name: res.name, gzip: true, confirmed: true }; t.savedEdits = edits; }
+      else if (!t.file || !t.file.handle) { t.file = { handle: null, name: res.name, gzip: true, downloaded: true }; t.savedEdits = edits; }
+      this.ui.refreshTraceFile();
+      this.status(`Saved ${r.nPaths} SNT path${r.nPaths === 1 ? '' : 's'} to ${res.name}` + (res.handle ? '' : ' (in your downloads)'));
+    },
+    exportTraces(o = {}) { return this.saveTracesAs(o); },
   });
 })();

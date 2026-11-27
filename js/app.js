@@ -199,9 +199,21 @@ class App {
   }
 
   // ------------------------------------------------------------- loading
-  async openFile(file) {
+  /**
+   * Open button / Ctrl+O. In Chrome and Edge the browser's own file dialog gives a handle on the file, so an opened
+   * .traces file can later be saved back to (Save in the tracing panel). Elsewhere: the ordinary file input.
+   */
+  async pickFile() {
+    if (!window.showOpenFilePicker) return $('#fileInput').click();
+    let handle;
+    try {
+      [handle] = await window.showOpenFilePicker({ types: [{ description: 'CZI images and SNT traces', accept: { 'application/octet-stream': ['.czi', '.traces'] } }] });
+    } catch (e) { if (e.name !== 'AbortError') $('#fileInput').click(); return; }
+    this.openFile(await handle.getFile(), handle);
+  }
+  async openFile(file, handle = null) {
     if (!file) return;
-    if (/\.traces$/i.test(file.name)) return this.importTraces(file);
+    if (/\.traces$/i.test(file.name)) return this.importTraces(file, handle);
     this.decodePool();   // start the decoding workers now: they get ready while the header is read and the dialog is open
     const r = await this.task('Reading ' + file.name + '…', async () => {
       const info = await this.worker.call('czi.open', { file });
@@ -566,11 +578,16 @@ class App {
     ['dragleave', 'drop'].forEach((t) => vp.addEventListener(t, (e) => { e.preventDefault(); if (t === 'drop' || e.target === vp) document.body.classList.remove('dragging'); }));
     vp.addEventListener('drop', (e) => {
       const f = e.dataTransfer.files && e.dataTransfer.files[0];
-      if (f) this.openFile(f);
+      if (!f) return;
+      // Chrome / Edge: a handle on the dropped file, so a dropped .traces file can be saved back to (asked for now:
+      // the drop data is gone after this event)
+      const item = e.dataTransfer.items && e.dataTransfer.items[0];
+      const hp = item && item.getAsFileSystemHandle && /\.traces$/i.test(f.name) ? item.getAsFileSystemHandle().catch(() => null) : null;
+      if (hp) hp.then((h) => this.openFile(f, h && h.kind === 'file' ? h : null)); else this.openFile(f);
     });
     window.addEventListener('keydown', (e) => {
       const tag = (e.target.tagName || '').toLowerCase();
-      if (e.ctrlKey && e.key.toLowerCase() === 'o') { e.preventDefault(); $('#fileInput').click(); return; }
+      if (e.ctrlKey && e.key.toLowerCase() === 'o') { e.preventDefault(); this.pickFile(); return; }
       if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); this.ui.showTab('export'); return; }
       if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
       if (e.key === 'Escape') {
@@ -617,7 +634,7 @@ class App {
       else if ((k === '[' || k === ']') && this.trace) this.traceStepSegment(k === ']' ? 1 : -1); // previous / next segment along the chromosome (Segs dropdown)
       else if (k === 'Delete' && this.selected && e.shiftKey) this.removeLayer(this.selectedId);
     });
-    window.addEventListener('beforeunload', (e) => { if (this.history.length > 1) { e.preventDefault(); e.returnValue = ''; } });
+    window.addEventListener('beforeunload', (e) => { if (this.history.length > 1 || (this.traceUnsaved && this.traceUnsaved())) { e.preventDefault(); e.returnValue = ''; } });
   }
   cancelTask() {
     this.worker.cancel();
