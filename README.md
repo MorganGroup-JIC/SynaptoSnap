@@ -4,16 +4,17 @@ Tool to visualize and assist in annotation of synaptonemal complexes of Arabidop
 
 SynaptoSnap is a 3D viewer, processing and analysis tool for Zeiss `.czi` microscopy stacks that runs entirely in your browser (Edge or Chrome). It needs no install and no internet connection, and files never leave your computer.
 
-**Start it:** double-click `SynaptoSnap.bat` (opens in its own Edge window), or open `index.html` in Edge/Chrome. Then **Open CZI…**, drag a file onto the window, or click **Demo volume** for synthetic test stacks (a dense SIM-like pachytene nucleus, a sparse one, or a Turing pattern).
+**Start it:** double-click `SynaptoSnap.bat`. Then **Open CZI…**, drag a file onto the window, or click **Demo volume** for synthetic test stacks (a dense SIM-like pachytene nucleus, a sparse one, or a Turing pattern).
 
-## Online version and installing it
+## Installing it as an app (sharp taskbar icon)
 
-The same files can be served by GitHub Pages: in the repository's **Settings → Pages**, choose *Deploy from a branch*, `main`, `/ (root)`. The app then appears at `https://morgangroup-jic.github.io/<repository name>/`. It still runs entirely in the browser: `.czi` files are opened from your disk and never uploaded. The page itself (the code) is public, though, unless the organisation's plan restricts Pages access.
+`SynaptoSnap.bat` runs `tools/launch.ps1`. That script serves the app's own files to this computer only, at `http://localhost:47321/`, and opens SynaptoSnap in Edge. Nothing else can reach it, and it never serves the microscopy data in the folder. It stops by itself after 15 minutes without requests.
 
-- **Install it as an app:** open the site in Edge and choose **⋯ → Apps → Install SynaptoSnap** (or the install icon in the address bar). It then gets its own window, a Start-menu entry, and a sharp taskbar icon made from the exact-size images in `icons/`.
-- **Offline:** once opened online, it also starts without a connection (`sw.js` keeps a copy of the app's files).
-- **Updates:** online, every start loads the current version from the site and refreshes the offline copy. A release reaches the site a minute or so after it is pushed to `main`.
-- Opening `index.html` as a file, or with `SynaptoSnap.bat`, works as before. Browsers don't allow installing or offline copies for files, so the taskbar then shows Edge's enlarged tab icon.
+- **The first time,** SynaptoSnap opens in an Edge tab. Click **Install app** in its header (or the install icon in Edge's address bar). From then on it has its own window, a Start-menu entry, and a sharp taskbar icon made from the exact-size images in `icons/`. Right-click the taskbar icon to pin it.
+- **After that,** `SynaptoSnap.bat` opens the installed app. The installed app also starts on its own (Start menu or taskbar) without the launcher, from its offline copy (`sw.js`). Start it through `SynaptoSnap.bat` to pick up a new version from this folder.
+- **Why:** Edge gives an app window that is opened but not installed only its 16-pixel tab icon, which Windows enlarges to fill the taskbar button. Opening `index.html` directly still works, with that blurry icon.
+
+**Online (GitHub Pages):** the same files can also be served by GitHub Pages. In the repository's **Settings → Pages**, choose *Deploy from a branch*, `main`, `/ (root)`. The app then appears at `https://morgangroup-jic.github.io/<repository name>/`, where it can be installed the same way and stays up to date with what is pushed. It still runs entirely in the browser (`.czi` files are opened from your disk and never uploaded), but the site itself is public unless the organisation's plan restricts Pages access.
 
 ## What it reads
 
@@ -30,10 +31,10 @@ Files with several scenes or time points, or very large files, open a dialog whe
 ## Visualising
 
 - **Views:** 3D, single slice (with Z slider) and orthogonal XY/XZ/YZ + 3D (keys `1` `2` `3`). Slices are composited at full resolution and use true voxel aspect ratios.
-- **Per-layer display:** histogram with draggable min/max, Auto / Auto+ / Min–max contrast, gamma, opacity, 18 colour maps (channel colour, HiLo saturation check, Fire, Ice, Viridis, Magma, Inferno, Plasma, Turbo…).
+- **Per-layer display:** histogram with draggable min/max, Auto / Auto+ / Min–max contrast (opened channels start at Min–max, their full data range; layers made by processing start at Auto), gamma, opacity, 18 colour maps (channel colour, HiLo saturation check, Fire, Ice, Viridis, Magma, Inferno, Plasma, Turbo…).
 - **3D rendering (GPU ray-marching):** MIP, attenuated MIP (depth cues), translucent alpha blending, shaded iso-surfaces (per-layer level, see-through when opacity < 1), MinIP, average. Up to 6 layers blend at once, plus one labels layer drawn as coloured object surfaces.
 - **Quality & projection:** samples-per-voxel quality, orthographic/perspective projection, background colour, bounding box, axes, scale bar.
-- **Clipping:** a crop box (X/Y/Z min/max) plus a clipping plane (X, Y, Z or facing the camera, flippable).
+- **Clipping:** a crop box (X/Y/Z min/max) plus a clipping plane (X, Y, Z or facing the camera, flippable). The box is also the region the Analyze tab works on: tracing (and its suggestions), spots, measurements and the pattern spectrum look only inside it, and their results stay in whole-image coordinates. The top of the Analyze tab says which region is in use and has a **Use whole image** button. **Crop data to box** is separate: it cuts every layer down to the box for good.
 - **Camera:** drag rotates, Shift/right-drag pans, Alt-drag rolls, wheel zooms. XY/XZ/YZ/3D presets and auto-rotate (Space).
 - **Output:** PNG snapshots (1×, 2× or 4× resolution) and a 360° turntable video (WebM).
 
@@ -143,7 +144,7 @@ The last row is from the real interface: a click every 2.5 µm along hand-traced
 
 **Suggestions while you trace (key 1).** While you trace, the way on is suggested from the end of your trace as a dashed yellow line with a numbered badge where it stops. It appears only where the app is reasonably sure of it. Press `1` to add it as the next stretch; new suggestions then follow from the new end. To ignore a suggestion, just keep clicking. Suggestions also appear when you select a trace by clicking near one of its ends; they continue from that end.
 
-- **Where they come from:** an automatic trace of the whole image, made by the same tracer as *Trace chromosomes*. If you have run *Trace chromosomes*, it is that result as it came out; your later edits do not change it. If you haven't, the same tracing runs in the background as soon as you trace by hand. It uses a second worker, so nothing else waits for it. On these nuclei it takes about 9 s, and the hint at the bottom of the view says *suggestions: preparing* until then.
+- **Where they come from:** an automatic trace of the whole image (or of the clipping box, when one is set), made by the same tracer as *Trace chromosomes*. If you have run *Trace chromosomes*, it is that result as it came out; your later edits do not change it. If you haven't, the same tracing runs in the background as soon as you trace by hand. It uses a second worker, so nothing else waits for it. On these nuclei it takes about 9 s, and the hint at the bottom of the view says *suggestions: preparing* until then.
 - **When one is shown:** only when the last 1.5 µm of your trace runs along a chain of that automatic trace, with 75% of it within 0.15 µm and its end on the chain. The suggestion carries on along that chain.
 - **Where it stops by default:**
   - at the first gap link the chain crosses;
@@ -411,6 +412,7 @@ icons/                     app icon as PNGs, each drawn for its size (tab, heade
 tools/make-icons.html      draws all the icon files from one design (open it in a browser and save the files)
 manifest.webmanifest       makes the app installable when served over https (GitHub Pages)
 sw.js                      offline copy of the app for the online / installed version
+tools/launch.ps1           started by SynaptoSnap.bat: serves the app to this computer only, opens or installs it
 .nojekyll                  tells GitHub Pages to serve the files unchanged
 js/layout.js               resizable / hideable side panels, Ortho pane splitters
 js/version.js              app version (date-based)

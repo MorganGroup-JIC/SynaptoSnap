@@ -657,11 +657,25 @@ class UI {
     if (!app.dims) { host.append(h('p', { class: 'muted small' }, 'Load data to set clipping.')); return; }
     ['X', 'Y', 'Z'].forEach((ax, k) => {
       const n = app.dims[k];
-      const a = sliderRow({ label: ax + ' min', min: 0, max: n, step: 1, value: Math.round(rs.box[k] * n), onInput: (v) => { rs.box[k] = Math.min(v / n, rs.box[k + 3] - 1 / n); app.requestRender('3d'); } });
-      const b = sliderRow({ label: ax + ' max', min: 0, max: n, step: 1, value: Math.round(rs.box[k + 3] * n), onInput: (v) => { rs.box[k + 3] = Math.max(v / n, rs.box[k] + 1 / n); app.requestRender('3d'); } });
+      const a = sliderRow({ label: ax + ' min', min: 0, max: n, step: 1, value: Math.round(rs.box[k] * n), onInput: (v) => { rs.box[k] = Math.min(v / n, rs.box[k + 3] - 1 / n); app.requestRender('3d'); this.refreshRoiNote(); } });
+      const b = sliderRow({ label: ax + ' max', min: 0, max: n, step: 1, value: Math.round(rs.box[k + 3] * n), onInput: (v) => { rs.box[k + 3] = Math.max(v / n, rs.box[k] + 1 / n); app.requestRender('3d'); this.refreshRoiNote(); } });
       host.append(a.el, b.el);
     });
+    host.append(h('p', { class: 'muted small' }, 'Tracing, spots, measurements and the pattern spectrum (Analyze tab) look only inside the box; their results stay in whole-image coordinates.'));
     this.refreshRenderInfo();
+    this.refreshRoiNote();
+  }
+  /** Analyze tab: which region the analyses use (the clipping box, or the whole image). */
+  refreshRoiNote() {
+    const el = this.roiNote, app = this.app;
+    if (!el) return;
+    el.innerHTML = '';
+    if (!app.dims) return;
+    const part = app.roiPart();
+    if (part === false) { el.append('Region: the clipping box is empty.'); return; }
+    if (!part) { el.append('Region: the whole image. Set a clipping box (Render tab) to analyse only part of it.'); return; }
+    el.append(h('b', null, 'Region: clipping box '), app.roiText(part) + ` (${part.w}×${part.h}×${part.d} of ${part.W}×${part.H}×${part.D}). Results stay in whole-image coordinates. `,
+      h('button', { onclick: () => { app.rs.box = [0, 0, 0, 1, 1, 1]; this.refreshRender(); app.requestRender(); }, title: 'Reset the clipping box, so analyses use the whole image' }, 'Use whole image'));
   }
   refreshRenderInfo() {
     if (!this.gpuInfo) return;
@@ -727,7 +741,9 @@ class UI {
     // profile
     this.lineBtn = h('button', { class: 'wide', onclick: () => { app.tool = app.tool === 'line' ? null : 'line'; if (app.traceEditOff) app.traceEditOff(); if (app.tool && app.view === '3d') app.setView('xy'); this.syncTool(); } }, 'Draw line on XY slice');
     this.profRes = h('div', { class: 'result' });
+    this.roiNote = h('p', { class: 'small roi-note' });
     host.append(
+      this.roiNote,
       this.buildTraceSection(),
       sec('Spot detection', 'Finds bright, roughly round spots (LoG detector with sub-voxel refinement). Reports spacing statistics useful for periodic patterns.', this.anaForms.spots, this.spotsRes),
       sec('Object measurements', 'Volume, surface, shape and intensity for every labelled object. A mask is labelled automatically.', this.anaForms.measure, this.measureRes),

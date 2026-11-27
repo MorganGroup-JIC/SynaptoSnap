@@ -277,7 +277,7 @@ OP_GROUPS.forEach((g) => g.items.forEach((o) => { OP_INDEX[o.id] = o; }));
 
 const ANALYSIS_DEFS = {
   spots: {
-    id: 'spots', name: 'Spot detection',
+    id: 'spots', name: 'Spot detection', roi: true,   // roi: only inside the clipping box (App.runOp)
     inputs: [{ label: 'Input', kinds: INTENSITY }],
     params: [
       { k: 'diameter', label: 'Spot diameter (µm)', def: (c) => r3(c.sx * 6), step: 0.05 },
@@ -288,12 +288,12 @@ const ANALYSIS_DEFS = {
     ],
   },
   measure: {
-    id: 'measure', name: 'Measure objects',
+    id: 'measure', name: 'Measure objects', roi: true,
     inputs: [{ label: 'Labels', kinds: ['labels', 'mask'] }, { label: 'Intensity', kinds: INTENSITY, optional: true }],
     params: [],
   },
   trace: {
-    id: 'trace', name: 'Chromosome tracing',
+    id: 'trace', name: 'Chromosome tracing', roi: true,
     // both default to the SC (ZYP1) channel: the most line-like channel (App.traceSCChannel), not the first
     inputs: [{ label: 'Image or mask', kinds: ['intensity', 'mask'], prefer: 'sc' }, { label: 'Intensity (for stats)', kinds: INTENSITY, optional: true, prefer: 'sc' }],
     params: [
@@ -316,7 +316,8 @@ const ANALYSIS_DEFS = {
     ],
   },
   spectrum: {
-    id: 'spectrum', name: 'Pattern spectrum',
+    id: 'spectrum', name: 'Pattern spectrum', roi: true,
+    roiParams: (p, r) => Object.assign({}, p, { z: Math.min(r.d - 1, Math.max(0, (p.z | 0) - r.z0)) }),   // current slice, within the box
     inputs: [{ label: 'Input', kinds: ANY_IMG }],
     params: [
       { k: 'source', label: 'Image', type: 'select', options: [['mip', 'Max projection (Z)'], ['mean', 'Mean projection (Z)'], ['slice', 'Current XY slice']], def: 'mip' },

@@ -8,6 +8,8 @@
   const W_CHROM = 3, W_MUTED = 1.3;
   // Hiding is view state only (not undone, not exported): t.hidden holds chromosome numbers, 0 = unassigned pieces.
   const isShown = (t, k) => !t.hidden || !t.hidden.has(k || 0);
+  // the region a reference trace was made for: the clipping box (App.roiPart / trace.roi) or the whole image
+  const roiKeyOf = (r) => (r ? [r.x0, r.y0, r.z0, r.w, r.h, r.d].join(',') : 'all');
   const edgeShown = (t, i) => isShown(t, t.edgeChrom[i]) || (t.edgeChrom2[i] > 0 && isShown(t, t.edgeChrom2[i]));
   /** Chromosomes present at each node, for colouring hand links (null when there are none). */
   function chromsAtNodes(t) {
@@ -1012,7 +1014,7 @@
       return { node, T: trail[0], own, trail: trail.slice().reverse() };
     },
     /**
-     * The reference the suggestions follow: an automatic trace of the whole image, as the tracer made it (later
+     * The reference the suggestions follow: an automatic trace of the whole image (or of the clipping box), as the tracer made it (later
      * edits do not change it). After "Trace chromosomes" it is that result; before it, the same tracing runs in
      * the background, on the channel Trace follows, with the tracing form's settings (a second worker: it
      * does not block anything else). Returns the reference when ready, else null (and starts it if needed).
@@ -1020,16 +1022,20 @@
     traceEnsureRef() {
       const img = this.trace && this.traceImage();
       if (!img) return null;
-      const R = this.traceRef;
-      if (R && R.data === img.data) return R.status === 'ready' ? R : null;
-      if (R && R.worker) { try { R.worker.w.terminate(); } catch (e) { /* gone */ } } // made for another channel
+      const part = this.roiPart();   // the same region as Trace chromosomes: the clipping box
+      if (part === false) return null;
+      const R = this.traceRef, key = roiKeyOf(part);
+      if (R && R.data === img.data && R.roiKey === key) return R.status === 'ready' ? R : null;
+      if (R && R.worker) { try { R.worker.w.terminate(); } catch (e) { /* gone */ } } // made for another channel or box
       const form = this.ui.anaForms.trace, params = Object.assign({}, (form && form.params) || {});
-      const ref = this.traceRef = { img, data: img.data, status: 'running', frac: 0, worker: new WorkerHost() };
-      const args = { op: 'trace', inputs: [{ data: img.data, kind: 'intensity', dtype: img.dtype }], dims: this.dims, spacing: this.spacing, params };
+      const ref = this.traceRef = { img, data: img.data, roiKey: key, status: 'running', frac: 0, worker: new WorkerHost() };
+      const args = part ? this.roiArgs(ANALYSIS_DEFS.trace, [img], params, part)
+        : { op: 'trace', inputs: [{ data: img.data, kind: 'intensity', dtype: img.dtype }], dims: this.dims, spacing: this.spacing, params };
       const t0 = performance.now();
       ref.worker.call('op', args, [], (f) => { ref.frac = f; if (this.trace && this.trace.tip) this.requestRender('2d'); })
         .then((res) => {
           if (this.traceRef !== ref) return;
+          if (part) this.roiResult(res, part);
           this.traceSetRef(res.trace, img);
           this.log && this.log(`Reference trace for suggestions on "${img.name}" made in the background (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
           this.traceSuggestSoon();
@@ -1042,7 +1048,7 @@
     traceSetRef(T, img) {
       if (!T || !img) return;
       if (this.traceRef && this.traceRef.worker && this.traceRef.data !== img.data) { try { this.traceRef.worker.w.terminate(); } catch (e) { /* gone */ } }
-      this.traceRef = { img, data: img.data, status: 'ready', edges: T.edges.slice(), nodes: Object.assign({}, T.nodes), bridges: T.bridges.map((b) => Object.assign({}, b)),
+      this.traceRef = { img, data: img.data, roiKey: roiKeyOf(T.roi), status: 'ready', edges: T.edges.slice(), nodes: Object.assign({}, T.nodes), bridges: T.bridges.map((b) => Object.assign({}, b)),
         edgeChain: T.edgeChain ? T.edgeChain.slice() : null, gapCands: (T.gapCands || []).slice(), params: T.params, n: T.edges.length };
     },
     /** The suggestions for the trace being drawn, if they are still for its current end (else null). */
@@ -2070,7 +2076,7 @@
       let suggestRow = null;
       if (t.clickMode === 'trace') {
         const lens = [0, 3, 5, 8, 12], cur = app.traceSuggestLen || 0;
-        const sel = h('select', { title: 'While you trace, the way on is suggested as a dashed line wherever your trace runs along a chain of an automatic trace of the whole image (made in the background if you have not run Trace chromosomes). Press 1 to take it; Shift+scroll moves where it stops; or click on it where you want to stop. A suggestion stops where the automatic tracer was unsure; this sets the most it takes by default.',
+        const sel = h('select', { title: 'While you trace, the way on is suggested as a dashed line wherever your trace runs along a chain of an automatic trace of the image (inside the clipping box, if one is set) (made in the background if you have not run Trace chromosomes). Press 1 to take it; Shift+scroll moves where it stops; or click on it where you want to stop. A suggestion stops where the automatic tracer was unsure; this sets the most it takes by default.',
           onchange: (ev) => { app.traceSuggestLen = +ev.target.value; ev.target.blur(); if (t.sugg) t.sugg = null; app.traceSuggestSoon(); app.requestRender(); this.refreshTraceSelection(); } },
         lens.map((v) => h('option', { value: v, selected: v === cur || (!lens.includes(cur) && v === 5) || null }, v ? 'up to ' + fmtNum(v) + ' µm' : 'Off')));
         suggestRow = h('div', { class: 'row2' }, h('label', null, 'Suggestions'), sel);

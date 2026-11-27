@@ -201,7 +201,8 @@ class App {
       const ch = v.channels[i];
       this.addLayer({
         name: ch.name, kind: 'intensity', data: ch.data, dtype: ch.dtype, source: ch.source,
-        disp: { color: ch.color || Colormaps.DEFAULT_COLORS[i % Colormaps.DEFAULT_COLORS.length], cmap: single && !ch.color ? 'gray' : 'custom' },
+        // opened channels show their full data range (Min–max); derived layers get the percentile auto-contrast
+        disp: { color: ch.color || Colormaps.DEFAULT_COLORS[i % Colormaps.DEFAULT_COLORS.length], cmap: single && !ch.color ? 'gray' : 'custom', fit: 'minmax' },
         history: ['Loaded from ' + (v.fileName || v.name)], silent: true,
       });
     }
@@ -256,7 +257,7 @@ class App {
     L.pct = (p) => this.layerPct(L, p);
     const given = o.disp || {};
     if (L.kind === 'intensity') {
-      let lo = L.pct(0.05), hi = L.pct(99.95);
+      let lo = given.fit === 'minmax' ? L.range[0] : L.pct(0.05), hi = given.fit === 'minmax' ? L.range[1] : L.pct(99.95);
       if (!(hi > lo)) { lo = L.range[0]; hi = L.range[1]; }
       if (!(hi > lo)) hi = lo + 1;
       L.disp = {
@@ -589,10 +590,16 @@ class App {
   }
   async runOp(def, inputs, params) {
     if (!this.dims) return null;
-    const args = { op: def.id, inputs: inputs.map((L) => (L ? { data: L.data, kind: L.kind, dtype: L.dtype } : null)).filter(Boolean), dims: this.dims, spacing: this.spacing, params };
-    const res = await this.task(def.name + '…', (p) => this.worker.call('op', args, [], p));
+    // Analyze-tab operations (def.roi) look only inside the clipping box; their results come back in
+    // whole-image coordinates (layers full size, positions and voxel indices shifted by the box corner)
+    const part = def.roi ? this.roiPart() : null;
+    if (part === false) return this.error('The clipping box is empty');
+    const args = part ? this.roiArgs(def, inputs, params, part)
+      : { op: def.id, inputs: inputs.map((L) => (L ? { data: L.data, kind: L.kind, dtype: L.dtype } : null)).filter(Boolean), dims: this.dims, spacing: this.spacing, params };
+    const res = await this.task(def.name + (part ? ' in the clipping box…' : '…'), (p) => this.worker.call('op', args, [], p));
     if (!res) return null;
-    const desc = def.name + (def.params.length ? ' (' + this.describeParams(def, params) + ')' : '');
+    if (part) this.roiResult(res, part);
+    const desc = def.name + (def.params.length ? ' (' + this.describeParams(def, params) + ')' : '') + (part ? ', clipping box ' + this.roiText(part) : '');
     const src = inputs[0];
     let last = null;
     for (const out of res.layers) {
@@ -609,21 +616,72 @@ class App {
     return { res, layer: last };
   }
 
-  cropToBox() {
-    if (!this.dims) return;
+  // ------------------------------------------------------------- clipping box as region of interest
+  /** The clipping box in whole voxels (the same rounding as Crop to box). */
+  roiBox() {
     const [W, H, D] = this.dims, b = this.rs.box;
     const x0 = Math.floor(b[0] * W), y0 = Math.floor(b[1] * H), z0 = Math.floor(b[2] * D);
-    const x1 = Math.ceil(b[3] * W), y1 = Math.ceil(b[4] * H), z1 = Math.ceil(b[5] * D);
-    const nw = x1 - x0, nh = y1 - y0, nd = z1 - z0;
+    const w = Math.ceil(b[3] * W) - x0, h = Math.ceil(b[4] * H) - y0, d = Math.ceil(b[5] * D) - z0;
+    return { x0, y0, z0, w, h, d, W, H, D, full: w === W && h === H && d === D };
+  }
+  /** The box when it is smaller than the image, null when it covers everything, false when it is empty. */
+  roiPart() {
+    const r = this.roiBox();
+    return r.w < 1 || r.h < 1 || r.d < 1 ? false : r.full ? null : r;
+  }
+  roiText(r) { return `x ${r.x0}–${r.x0 + r.w - 1}, y ${r.y0}–${r.y0 + r.h - 1}, z ${r.z0}–${r.z0 + r.d - 1}`; }
+  roiCrop(a, r) {
+    const out = new a.constructor(r.w * r.h * r.d);
+    for (let z = 0; z < r.d; z++) for (let y = 0; y < r.h; y++) {
+      const s = ((z + r.z0) * r.H + (y + r.y0)) * r.W + r.x0;
+      out.set(a.subarray(s, s + r.w), (z * r.h + y) * r.w);
+    }
+    return out;
+  }
+  /** Box-sized data back into a whole-image array (zero outside the box). */
+  roiPaste(a, r) {
+    const out = new a.constructor(r.W * r.H * r.D);
+    for (let z = 0; z < r.d; z++) for (let y = 0; y < r.h; y++) {
+      const o = (z * r.h + y) * r.w;
+      out.set(a.subarray(o, o + r.w), ((z + r.z0) * r.H + (y + r.y0)) * r.W + r.x0);
+    }
+    return out;
+  }
+  /** Worker arguments for an operation on the box only (params.roiParams adapts slice numbers and the like). */
+  roiArgs(def, inputs, params, r) {
+    const prm = def.roiParams ? def.roiParams(params, r) : params;
+    return { op: def.id, inputs: inputs.filter(Boolean).map((L) => ({ data: this.roiCrop(L.data, r), kind: L.kind, dtype: L.dtype })), dims: [r.w, r.h, r.d], spacing: this.spacing, params: prm };
+  }
+  /** Puts a box-sized result in whole-image coordinates, in place. */
+  roiResult(res, r) {
+    const [sx, sy, sz] = this.spacing, off = [r.x0 * sx, r.y0 * sy, r.z0 * sz], vo = [r.x0, r.y0, r.z0];
+    const um = (p) => p.map((v, k) => (k < 3 ? v + off[k] : v));   // new arrays: positions may be shared
+    const PW = r.w * r.h;
+    const vox = (i) => { const z = Math.floor(i / PW), q = i - z * PW, y = Math.floor(q / r.w); return ((z + r.z0) * r.H + y + r.y0) * r.W + q - y * r.w + r.x0; };
+    for (const L of res.layers || []) L.data = this.roiPaste(L.data, r);
+    if (res.points) for (const q of res.points) { q.x += r.x0; q.y += r.y0; q.z += r.z0; }               // voxels
+    if (res.table) for (const row of res.table) {                                                          // centroids in µm, bbox in voxels
+      row.cx += off[0]; row.cy += off[1]; row.cz += off[2];
+      if (row.bbox) row.bbox = row.bbox.map((v, k) => v + vo[k % 3]);
+    }
+    const T = res.trace;
+    if (T) {                                                                                               // µm positions and voxel indices
+      for (const e of T.edges) { e.pts = e.pts.map(um); e.vox = Int32Array.from(e.vox, vox); }
+      for (const id of Object.keys(T.nodes)) T.nodes[id] = um(T.nodes[id]);
+      for (const b of T.bridges || []) { b.pa = um(b.pa); b.pb = um(b.pb); }
+      for (const c of T.gapCands || []) { c.pa = um(c.pa); c.pb = um(c.pb); }
+      T.roi = { x0: r.x0, y0: r.y0, z0: r.z0, w: r.w, h: r.h, d: r.d };
+    }
+    if (res.info) res.info += ' (clipping box)';
+  }
+
+  cropToBox() {
+    if (!this.dims) return;
+    const r = this.roiBox(), { x0, y0, z0 } = r, nw = r.w, nh = r.h, nd = r.d, x1 = x0 + nw, y1 = y0 + nh, z1 = z0 + nd;
     if (nw < 1 || nh < 1 || nd < 1) return this.error('Clipping box is empty');
-    if (nw === W && nh === H && nd === D) return this.toast('Set a clipping box first (Render tab › Clipping box).');
+    if (r.full) return this.toast('Set a clipping box first (Render tab › Clipping box).');
     for (const L of this.layers) {
-      const out = new L.data.constructor(nw * nh * nd);
-      for (let z = 0; z < nd; z++) for (let y = 0; y < nh; y++) {
-        const s = ((z + z0) * H + (y + y0)) * W + x0;
-        out.set(L.data.subarray(s, s + nw), (z * nh + y) * nw);
-      }
-      L.data = out;
+      L.data = this.roiCrop(L.data, r);
       L.history = [...L.history, `Cropped to x ${x0}–${x1 - 1}, y ${y0}–${y1 - 1}, z ${z0}–${z1 - 1}`];
     }
     if (this.points) this.points.list = this.points.list.filter((q) => q.x >= x0 && q.x < x1 && q.y >= y0 && q.y < y1 && q.z >= z0 && q.z < z1).map((q) => Object.assign({}, q, { x: q.x - x0, y: q.y - y0, z: q.z - z0 }));
