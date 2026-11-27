@@ -1477,14 +1477,15 @@
       const [sx, sy, sz] = this.spacing, [W, H, D] = this.dims, m = pts[pts.length >> 1];
       const c = this.cursor;
       c[0] = clampInt(m[0] / sx, 0, W - 1); c[1] = clampInt(m[1] / sy, 0, H - 1); c[2] = clampInt(m[2] / sz, 0, D - 1);
-      for (const v of Object.values(this.sliceViews || {})) {
-        const w = v.host.clientWidth, hh = v.host.clientHeight;
-        if (!w || !hh || !v.zoom) continue;
-        const [px, py] = v.pxSize();
-        const uv = (p) => (v.axis === 'xy' ? [p[0], p[1]] : v.axis === 'xz' ? [p[0], p[2]] : [p[2], p[1]]);
-        const off = pts.some((p) => { const [a, b] = uv(p), X = (a + px / 2 - v.cx) * v.zoom + w / 2, Y = (b + py / 2 - v.cy) * v.zoom + hh / 2; return X < 24 || Y < 24 || X > w - 24 || Y > hh - 24; });
-        if (off) { const [a, b] = uv(m); v.cx = a + px / 2; v.cy = b + py / 2; }
-      }
+      const shown = Object.values(this.sliceViews || {}).filter((v) => v.host.clientWidth && v.host.clientHeight && v.zoom);
+      const uvOf = (v, p) => (v.axis === 'xy' ? [p[0], p[1]] : v.axis === 'xz' ? [p[0], p[2]] : [p[2], p[1]]);
+      const offIn = (v) => {
+        const [px, py] = v.pxSize(), w = v.host.clientWidth, hh = v.host.clientHeight;
+        return pts.some((p) => { const [a, b] = uvOf(v, p), X = (a + px / 2 - v.cx) * v.zoom + w / 2, Y = (b + py / 2 - v.cy) * v.zoom + hh / 2; return X < 24 || Y < 24 || X > w - 24 || Y > hh - 24; });
+      };
+      // Ortho panes move together (App.syncOrtho): if one has to move, all are centred on the segment
+      const move = this.view === 'ortho' ? (shown.some(offIn) ? shown : []) : shown.filter(offIn);
+      for (const v of move) { const [px, py] = v.pxSize(), [a, b] = uvOf(v, m); v.cx = a + px / 2; v.cy = b + py / 2; v.fitted = false; }
       this.cursorChanged();
     },
     /** Click on a traced segment in any view, interpreted by the current click mode. */

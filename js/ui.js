@@ -662,7 +662,7 @@ class UI {
     const pAxis = selectEl([['x', 'X'], ['y', 'Y'], ['z', 'Z'], ['view', 'Facing camera']], plane.axis, (v) => { plane.axis = v; R(); });
     const pPos = sliderRow({ label: 'Position', min: 0, max: 1, step: 0.001, value: plane.pos, onInput: (v) => { plane.pos = v; R(); } });
     host.append(h('h2', null, 'Clipping box'), this.clipHost,
-      h('div', { class: 'btns' }, h('button', { onclick: () => { rs.box = [0, 0, 0, 1, 1, 1]; this.refreshRender(); app.requestRender(); } }, 'Reset box'), h('button', { onclick: () => { this.showTab('process'); app.cropToBox(); } , title: 'Permanently crop every layer to the box' }, 'Crop data to box')),
+      h('div', { class: 'btns' }, h('button', { onclick: () => { rs.box = [0, 0, 0, 1, 1, 1]; this.refreshRender(); app.boxChanged(); } }, 'Reset box'), h('button', { onclick: () => { this.showTab('process'); app.cropToBox(); } , title: 'Permanently crop every layer to the box' }, 'Crop data to box')),
       h('h2', null, 'Clipping plane'), check('Enable clipping plane', plane.on, (v) => { plane.on = v; R(); }), row2('Normal', pAxis), pPos.el, check('Flip side', plane.flip, (v) => { plane.flip = v; R(); }));
     // camera
     const view = (v) => { if (!app.renderer) return; app.renderer.camera.reset(v); R(); };
@@ -680,8 +680,8 @@ class UI {
     if (!app.dims) { host.append(h('p', { class: 'muted small' }, 'Load data to set clipping.')); return; }
     ['X', 'Y', 'Z'].forEach((ax, k) => {
       const n = app.dims[k];
-      const a = sliderRow({ label: ax + ' min', min: 0, max: n, step: 1, value: Math.round(rs.box[k] * n), onInput: (v) => { rs.box[k] = Math.min(v / n, rs.box[k + 3] - 1 / n); app.requestRender(); this.refreshRoiNote(); } });
-      const b = sliderRow({ label: ax + ' max', min: 0, max: n, step: 1, value: Math.round(rs.box[k + 3] * n), onInput: (v) => { rs.box[k + 3] = Math.max(v / n, rs.box[k] + 1 / n); app.requestRender(); this.refreshRoiNote(); } });
+      const a = sliderRow({ label: ax + ' min', min: 0, max: n, step: 1, value: Math.round(rs.box[k] * n), onInput: (v) => { rs.box[k] = Math.min(v / n, rs.box[k + 3] - 1 / n); app.boxChanged(); this.refreshRoiNote(); } });
+      const b = sliderRow({ label: ax + ' max', min: 0, max: n, step: 1, value: Math.round(rs.box[k + 3] * n), onInput: (v) => { rs.box[k + 3] = Math.max(v / n, rs.box[k] + 1 / n); app.boxChanged(); this.refreshRoiNote(); } });
       host.append(a.el, b.el);
     });
     host.append(h('p', { class: 'muted small' }, 'Every view (3D, Slice, Ortho, max projection) hides what lies outside the box. Tracing, spots, measurements and the pattern spectrum (Analyze tab) also look only inside it; their results stay in whole-image coordinates.'));
@@ -698,7 +698,7 @@ class UI {
     if (part === false) { el.append('Region: the clipping box is empty.'); return; }
     if (!part) { el.append('Region: the whole image. Set a clipping box (Render tab) to analyse only part of it.'); return; }
     el.append(h('b', null, 'Region: clipping box '), app.roiText(part) + ` (${part.w}×${part.h}×${part.d} of ${part.W}×${part.H}×${part.D}). Results stay in whole-image coordinates. `,
-      h('button', { onclick: () => { app.rs.box = [0, 0, 0, 1, 1, 1]; this.refreshRender(); app.requestRender(); }, title: 'Reset the clipping box, so analyses use the whole image' }, 'Use whole image'));
+      h('button', { onclick: () => { app.rs.box = [0, 0, 0, 1, 1, 1]; this.refreshRender(); app.boxChanged(); }, title: 'Reset the clipping box, so analyses use the whole image' }, 'Use whole image'));
   }
   refreshRenderInfo() {
     if (!this.gpuInfo) return;

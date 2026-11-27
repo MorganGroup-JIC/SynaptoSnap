@@ -92,16 +92,10 @@
   function fittedSlices() {
     const app = window.app, out = [];
     if (!app || !app.dims || !app.sliceViews) return out;
+    // SliceView.fitted: set by fit(), cleared when the user zooms or pans the view
     for (const s of Object.values(app.sliceViews)) {
-      try {
-        if (!s.host || !s.host.clientWidth || !s.host.clientHeight) continue; // hidden
-        if (!s.zoom) { out.push(s); continue; }
-        const z = s.zoom, cx = s.cx, cy = s.cy;
-        s.fit();
-        const same = Math.abs(s.zoom - z) <= 1e-6 * z && Math.abs(s.cx - cx) <= 1e-6 * (Math.abs(cx) + 1e-3) && Math.abs(s.cy - cy) <= 1e-6 * (Math.abs(cy) + 1e-3);
-        s.zoom = z; s.cx = cx; s.cy = cy;
-        if (same) out.push(s);
-      } catch (_) { /* slice view changed: leave it alone */ }
+      if (!s.host || !s.host.clientWidth || !s.host.clientHeight) continue; // hidden
+      if (!s.zoom || s.fitted) out.push(s);
     }
     return out;
   }

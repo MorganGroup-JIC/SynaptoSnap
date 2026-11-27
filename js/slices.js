@@ -205,11 +205,35 @@ class SliceView {
     if (!this.zoom && this.app.dims) this.fit();
     this.draw();
   }
+  /** What a fitted view frames, in µm along this view's horizontal (u) and vertical (v): the clipping box, or the whole slice. */
+  fitRegion() {
+    const r = this.app.roiBox(), [sx, sy, sz] = this.app.spacing;
+    const X = r.full || r.w < 1 ? [0, r.W * sx] : [r.x0 * sx, (r.x0 + r.w) * sx];
+    const Y = r.full || r.h < 1 ? [0, r.H * sy] : [r.y0 * sy, (r.y0 + r.h) * sy];
+    const Z = r.full || r.d < 1 ? [0, r.D * sz] : [r.z0 * sz, (r.z0 + r.d) * sz];
+    const [U, V] = this.axis === 'xy' ? [X, Y] : this.axis === 'xz' ? [X, Z] : [Z, Y];
+    return { u0: U[0], u1: U[1], v0: V[0], v1: V[1] };
+  }
+  fitZoom() {
+    const R = this.fitRegion(), w = this.host.clientWidth || 1, h = this.host.clientHeight || 1;
+    return Math.min(w / Math.max(1e-9, R.u1 - R.u0), h / Math.max(1e-9, R.v1 - R.v0)) * 0.94;
+  }
+  /**
+   * Frame the clipping box (the whole slice when there is none). In Ortho the three panes are fitted together:
+   * one scale for all, centred on the same point, so XY and XZ line up in x, XY and YZ in y (see App.syncOrtho).
+   */
   fit() {
-    const [iw, ih] = this.imgDims(), [px, py] = this.pxSize();
-    const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1;
-    this.zoom = Math.min(w / (iw * px), h / (ih * py)) * 0.94;
-    this.cx = iw * px / 2; this.cy = ih * py / 2;
+    const app = this.app;
+    if (!app.dims) return;
+    const views = app.view === 'ortho' && app.sliceViews ? Object.values(app.sliceViews).filter((s) => s.host.clientWidth) : [this];
+    if (!views.includes(this)) views.push(this);
+    const z = Math.min(...views.map((s) => s.fitZoom()));
+    for (const s of views) {
+      const R = s.fitRegion();
+      s.zoom = app.view === 'ortho' ? z : s.fitZoom();
+      s.cx = (R.u0 + R.u1) / 2; s.cy = (R.v0 + R.v1) / 2;
+      s.fitted = true;
+    }
   }
   // screen (CSS px) -> image voxel coords (float)
   toImage(sx, sy) {
@@ -327,7 +351,9 @@ class SliceView {
         const w = this.host.clientWidth, h = this.host.clientHeight;
         this.cx = u * px - (mx - w / 2) / this.zoom;
         this.cy = v * py - (my - h / 2) / this.zoom;
+        this.fitted = false;
         this.draw();
+        this.app.syncOrtho(this);
       } else {
         const step = (e.deltaY > 0 ? 1 : -1) * (e.shiftKey ? 5 : 1);
         this.index = this.index + step;
@@ -392,7 +418,9 @@ class SliceView {
       if (this.drag.moved) {
         this.cx = this.drag.cx - dx / this.zoom;
         this.cy = this.drag.cy - dy / this.zoom;
+        this.fitted = false;
         this.draw();
+        this.app.syncOrtho(this);
       }
     });
     const end = (e) => {
@@ -426,7 +454,7 @@ class SliceView {
     cv.addEventListener('pointerleave', () => { this.app.hover(null); if (this.app.traceHoverAt && this.app.traceHoverAt.view === this) { this.app.traceHoverAt = null; this.draw(); } });
     // while tracing or erasing, quick clicks are not a request to refit the view, and right-click finishes a trace
     const clicking = () => this.app.tool === 'trace' && this.app.trace && (this.app.trace.clickMode === 'trace' || this.app.trace.clickMode === 'erase');
-    cv.addEventListener('dblclick', () => { if (clicking()) return; this.fit(); this.draw(); });
+    cv.addEventListener('dblclick', () => { if (clicking()) return; this.fit(); this.app.requestRender('2d'); });
     cv.addEventListener('contextmenu', (e) => { if (this.app.tool === 'trace') e.preventDefault(); });
   }
 }

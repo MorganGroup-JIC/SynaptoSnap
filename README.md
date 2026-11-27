@@ -31,10 +31,10 @@ Files with several scenes or time points, or very large files, open a dialog whe
 
 ## Viewing
 
-- **Views:** 3D, Slice (with a Z slider) and Ortho (XY/XZ/YZ + 3D). Keys `1` `2` `3`.
+- **Views:** 3D, Slice (with a Z slider) and Ortho (XY/XZ/YZ + 3D). Keys `1` `2` `3`. In Ortho the three slice panes move together: one scale, XY and XZ lined up in x, XY and YZ in y, so zooming or panning one moves the others.
 - **Channels** (left panel): a histogram with draggable min/max, the **Auto**, **Auto+** and **Min–max** buttons, gamma, opacity and colour maps. Channels of an opened file start at Min–max (their full data range); layers made by processing start at Auto.
 - **3D rendering** (Render tab): MIP, attenuated MIP, translucent blending, iso-surfaces, MinIP or average, with up to 6 layers plus one labels layer. Very large stacks are reduced for the 3D display only; slices, processing and export always use the full data.
-- **Clipping:** a box (X/Y/Z min/max) and a clipping plane, in the Render tab. The box hides everything outside it in every view: 3D, Slice, Ortho and the max projection (which then covers only the box's Z range); traces and spots outside it are hidden too. It also sets the region the Analyze tab works on (see [Analysis](#analysis-analyze-tab)).
+- **Clipping:** a box (X/Y/Z min/max) and a clipping plane, in the Render tab. The box hides everything outside it in every view: 3D, Slice, Ortho and the max projection (which then covers only the box's Z range); traces and spots outside it are hidden too. Slice and Ortho frame the box (double-click a view to frame it again), and the slice cursor moves into the box when it would fall outside. It also sets the region the Analyze tab works on (see [Analysis](#analysis-analyze-tab)).
 - **Mouse:** drag rotates (3D) or pans (slices); `Shift`- or right-drag pans 3D; the wheel zooms 3D or changes the slice; `Ctrl`+wheel zooms slices; double-click resets the view. `Space` turns auto-rotate on and off.
 - **Pictures and movies:** PNG snapshots at 1×, 2× or 4× resolution, and a 360° turntable video (WebM).
 - **Arranging the window:** drag the thin line between a side panel and the views to resize the panel, or click the small arrow tab on that line to hide it. In Ortho, drag the lines between the panes (or the dot where they cross) to resize them. Double-click a line to go back to the default. The layout is remembered.

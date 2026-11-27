@@ -423,18 +423,24 @@ class App {
     this.requestRender();
   }
   layoutViews() {
+    this.orthoSplit();
+    // reading clientWidth forces layout, so the new sizes are available immediately
+    Object.values(this.sliceViews).forEach((s) => { s.zoom = 0; s.resize(); });
+    this.resize3D();
+  }
+  /** Ortho: pane sizes in proportion to what the panes show (the clipping box, or the whole stack). A split
+   *  dragged by hand (js/layout.js) overrides this. */
+  orthoSplit() {
     const g = $('#views');
     if (this.view === 'ortho' && this.dims) {
-      const [W, H, D] = this.dims, [sx, sy, sz] = this.spacing;
+      const r = this.roiBox(), whole = r.full || r.w < 1 || r.h < 1 || r.d < 1;
+      const [W, H, D] = whole ? this.dims : [r.w, r.h, r.d], [sx, sy, sz] = this.spacing;
       const a = W * sx, b = Math.max(D * sz, 1e-9), c = H * sy;
       const clamp = (f) => Math.min(0.72, Math.max(0.28, f));
       const fc = clamp(a / (a + b)), fr = clamp(c / (c + b));
       g.style.gridTemplateColumns = `${fc}fr ${1 - fc}fr`;
       g.style.gridTemplateRows = `${fr}fr ${1 - fr}fr`;
     } else { g.style.gridTemplateColumns = ''; g.style.gridTemplateRows = ''; }
-    // reading clientWidth forces layout, so the new sizes are available immediately
-    Object.values(this.sliceViews).forEach((s) => { s.zoom = 0; s.resize(); });
-    this.resize3D();
   }
   resize3D() {
     if (!this.renderer) return;
@@ -666,6 +672,36 @@ class App {
     this.cursorChanged();
   }
   cursorChanged() { this.requestRender('2d'); }
+  /**
+   * Ortho: the three panes show the same place at the same scale. XY and XZ share x (left-right), XY and YZ share y
+   * (up-down), XZ and YZ share z. After a pane is zoomed or panned, the other two follow.
+   */
+  syncOrtho(src) {
+    if (this.view !== 'ortho' || !this.sliceViews) return;
+    const { xy, xz, yz } = this.sliceViews;
+    const X = src.axis === 'yz' ? xy.cx : src.cx;
+    const Y = src.axis === 'xy' ? src.cy : src.axis === 'yz' ? src.cy : xy.cy;
+    const Z = src.axis === 'xz' ? src.cy : src.axis === 'yz' ? src.cx : xz.cy;
+    const set = (v, cx, cy) => { if (v === src) return; v.zoom = src.zoom; v.cx = cx; v.cy = cy; v.fitted = src.fitted; v.draw(); };
+    set(xy, X, Y); set(xz, X, Z); set(yz, Z, Y);
+  }
+  /**
+   * The clipping box changed: views that were framing the box (or the whole image) frame the new box, and the
+   * cursor moves into the box where it had fallen outside it, so every pane shows the region. (Slices hide
+   * everything outside the box, so a cursor outside it would leave a pane empty.)
+   */
+  boxChanged() {
+    if (!this.dims) return;
+    const r = this.roiBox(), c = this.cursor;
+    if (r.w >= 1 && r.h >= 1 && r.d >= 1) {
+      [[r.x0, r.w], [r.y0, r.h], [r.z0, r.d]].forEach(([a, n], k) => { if (c[k] < a || c[k] >= a + n) c[k] = a + (n >> 1); });
+    }
+    this.orthoSplit();   // Ortho panes sized to the box (the sizes are read below, so the refit uses them)
+    const views = Object.values(this.sliceViews).filter((s) => s.host.clientWidth && s.fitted);
+    if (this.view === 'ortho') { if (views.length) views[0].fit(); } else views.forEach((s) => s.fit());
+    this.ui.syncZSlider && this.ui.syncZSlider();
+    this.requestRender();
+  }
   selectLabel(id, jump) {
     this.selectedLabel = id;
     if (jump && this.table) {
